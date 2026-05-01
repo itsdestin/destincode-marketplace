@@ -15,6 +15,10 @@ export interface Env {
   // ISO-8601 timestamp of when the device-id-keyed client became dominant.
   // Empty string until Task 16 sets it — queries treat "" as epoch (no filter).
   CUTOVER_TIMESTAMP: string;
+  // Comma-separated 64-hex SHA-256 hashes of known dev/admin device IDs.
+  // Set via `wrangler secret put KNOWN_DEV_DEVICES` (Task 15) — absent until then.
+  // adminFilterClause() uses these to exclude dev traffic from analytics queries.
+  KNOWN_DEV_DEVICES?: string;
 }
 
 export interface UserRow {

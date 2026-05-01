@@ -37,7 +37,12 @@ GH_CLIENT_SECRET = "test"
 ADMIN_USER_IDS = "github:admin"
 CF_ACCOUNT_ID = "test-account"
 CF_ANALYTICS_TOKEN = "test-token"
-CUTOVER_TIMESTAMP = ""
+# Non-empty defaults so admin-analytics tests can verify cutover + filter
+# clauses are interpolated. Mutating env at test runtime does NOT propagate
+# to the worker (cloudflare:test snapshots env at start), so values that
+# need to flow into c.env must come from [env.test.vars].
+CUTOVER_TIMESTAMP = "2026-05-15T00:00:00Z"
+KNOWN_DEV_DEVICES = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 # Production runtime config: GH_CLIENT_ID, GH_CLIENT_SECRET, and ADMIN_USER_IDS
 # are injected as secrets by CI (see .github/workflows/worker-deploy.yml).

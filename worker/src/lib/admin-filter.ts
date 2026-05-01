@@ -24,8 +24,8 @@ export function adminFilterClause(env: Env, includeAdmins: boolean): string {
     .map((s) => s.trim())
     .filter(Boolean)
     .map((token) => {
-      const m = token.match(EXACT_64_HEX);
-      return m ? m[1].toLowerCase() : null;
+      const captured = token.match(EXACT_64_HEX)?.[1];
+      return captured ? captured.toLowerCase() : null;
     })
     .filter((h): h is string => h !== null)
     .map((h) => `'${h}'`);

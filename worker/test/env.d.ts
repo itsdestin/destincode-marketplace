@@ -6,6 +6,7 @@ declare module "cloudflare:test" {
     GH_CLIENT_ID: string;
     GH_CLIENT_SECRET: string;
     ADMIN_USER_IDS: string;
+    CUTOVER_TIMESTAMP: string;
   }
 }
 export {};

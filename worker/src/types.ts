@@ -12,6 +12,9 @@ export interface Env {
   // distinct from the broader CF_API_TOKEN used by CI for `wrangler deploy`.
   CF_ACCOUNT_ID: string;
   CF_ANALYTICS_TOKEN: string;
+  // ISO-8601 timestamp of when the device-id-keyed client became dominant.
+  // Empty string until Task 16 sets it — queries treat "" as epoch (no filter).
+  CUTOVER_TIMESTAMP: string;
 }
 
 export interface UserRow {

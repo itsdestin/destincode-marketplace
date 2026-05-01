@@ -8,12 +8,12 @@ describe("writeAppEvent", () => {
       writeAppEvent(
         { APP_ANALYTICS: undefined as any } as any,
         {
-          eventType: "install",
-          installId: "00000000-0000-0000-0000-000000000000",
+          deviceIdHash: "a".repeat(64),
           appVersion: "1.2.1",
           platform: "desktop",
           os: "mac",
           country: "US",
+          region: "",
         }
       )
     ).not.toThrow();
@@ -24,18 +24,43 @@ describe("writeAppEvent", () => {
     writeAppEvent(
       { APP_ANALYTICS: { writeDataPoint } } as any,
       {
-        eventType: "heartbeat",
-        installId: "11111111-1111-1111-1111-111111111111",
+        deviceIdHash: "a".repeat(64),
         appVersion: "1.2.1",
         platform: "android",
         os: "",
         country: "DE",
+        region: "",
       }
     );
     expect(writeDataPoint).toHaveBeenCalledWith({
-      blobs: ["heartbeat", "11111111-1111-1111-1111-111111111111", "1.2.1", "android", "", "DE"],
+      blobs: ["heartbeat", "a".repeat(64), "1.2.1", "android", "", "DE", ""],
       doubles: [],
       indexes: ["heartbeat"],
     });
+  });
+
+  it("writes blob7 region when present in payload", () => {
+    const writes: any[] = [];
+    const env = {
+      APP_ANALYTICS: { writeDataPoint: (dp: any) => writes.push(dp) },
+    } as any;
+    writeAppEvent(env, {
+      deviceIdHash: "a".repeat(64),
+      appVersion: "1.3.0",
+      platform: "desktop",
+      os: "mac",
+      country: "US",
+      region: "US-CA",
+    });
+    expect(writes).toHaveLength(1);
+    expect(writes[0].blobs).toEqual([
+      "heartbeat",
+      "a".repeat(64),
+      "1.3.0",
+      "desktop",
+      "mac",
+      "US",
+      "US-CA",
+    ]);
   });
 });

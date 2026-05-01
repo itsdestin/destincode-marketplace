@@ -94,7 +94,8 @@ async function handleHeartbeat(c: any) {
 appRoutes.post("/app/heartbeat", handleHeartbeat);
 
 // POST /app/install — DEPRECATED. Returns 410 Gone. Legacy clients still
-// post here; the response body says nothing (clients fire-and-forget),
-// they just stop expecting an "ok" and never advance state. They WILL
-// keep retrying once per launch, but the rate limit + 410 keeps it cheap.
+// post here once per launch (they fire-and-forget; the install event was
+// the once-per-install marker, no state advance on 410). The handler is
+// intentionally NOT rate-limited — a constant 410 response is cheaper to
+// emit than the Cache API call rate-limiting would require.
 appRoutes.post("/app/install", (c) => c.json({ deprecated: true }, 410));

@@ -69,6 +69,15 @@ describe("POST /app/heartbeat — new device-hash payload", () => {
     }, env);
     expect(res.status).toBe(400);
   });
+
+  it("rejects payload where deviceIdHash is valid but installId is malformed (strict)", async () => {
+    const res = await app.request("/app/heartbeat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...NEW_PAYLOAD, installId: "not-a-uuid" }),
+    }, env);
+    expect(res.status).toBe(400);
+  });
 });
 
 describe("POST /app/install — deprecated, returns 410", () => {

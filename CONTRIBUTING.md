@@ -1,0 +1,40 @@
+# Contributing to the WeCoded Marketplace
+
+The WeCoded Marketplace is the registry that powers YouCoded's plugin discovery — skills, slash commands, hooks, MCPs, and agents that anyone can install into their YouCoded app.
+
+## Submitting a Plugin
+
+The easiest path is publishing directly from YouCoded:
+
+1. Build your plugin (skill, command, hook, MCP, or agent) inside YouCoded.
+2. Run `/marketplace-publisher` from the bundled plugin and follow the prompts. The flow handles disk discovery, sanitization checks, and PR creation for you.
+
+Or, manually:
+
+1. Fork this repo.
+2. Add your plugin under `plugins/<plugin-id>/` with the required structure (see existing entries as a template).
+3. Update `index.json` and `marketplace.json` with your entry.
+4. Open a PR to this repo.
+
+CI (`.github/workflows/validate-plugin-pr.yml`) validates community plugin PRs automatically.
+
+## License & Submission Terms
+
+This repository is licensed under the **Apache License, Version 2.0** — see [LICENSE](./LICENSE).
+
+By opening a pull request to this repository, you certify that:
+
+1. **You wrote the plugin yourself, or otherwise have the right to submit it.** Any third-party code, libraries, or assets you include are either your original work, in the public domain, or licensed under terms compatible with Apache 2.0 — and any required attributions are included alongside your plugin.
+2. **You agree that your contribution is licensed under Apache 2.0**, the same terms as this repository, and that you grant the maintainers and downstream users the rights described in that license — including the right to redistribute your plugin through the YouCoded app, the marketplace registry, and the wecoded-marketplace Worker backend.
+3. **Your plugin does not include malicious content** — no credential harvesting, no unauthorized data exfiltration, no obfuscated payloads, no attempts to bypass YouCoded's permission system, no code that targets other plugins, no cryptominers, and nothing that violates Anthropic's Claude Code usage terms.
+4. **You will respond to security concerns and takedown requests in good faith** if your plugin is later found to have a vulnerability or to infringe a third party's rights.
+
+If you can't agree to all four, please don't submit.
+
+## Removing or Updating Your Plugin
+
+If you want to update your plugin, open a follow-up PR. If you want it removed entirely, open an issue or PR marking the entry as deprecated, or email the maintainer directly (see the main YouCoded [SECURITY.md](https://github.com/itsdestin/youcoded/blob/master/SECURITY.md) for contact).
+
+## Reporting Other People's Plugins
+
+If you believe a plugin in this registry infringes your rights, contains malware, or otherwise violates these terms, see the takedown process in the main YouCoded [TERMS.md](https://github.com/itsdestin/youcoded/blob/master/TERMS.md). Reports are responded to in good faith and bad-faith plugins are pulled from the registry.

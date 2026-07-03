@@ -25,10 +25,31 @@
 import { Hono } from "hono";
 import type { HonoEnv } from "../types";
 import { randomToken, randomUserCode, constantTimeEqual } from "../lib/crypto";
-import { badRequest, notFound } from "../lib/errors";
+import { badRequest, notFound, unauthorized } from "../lib/errors";
 import { buildAuthorizeUrl, exchangeCode, fetchGitHubUser } from "./github";
 import { issueSession } from "./sessions";
+import { requireAuth } from "./middleware";
 import { upsertUser } from "../db";
+
+// "Who am I" shape returned both in the poll completion payload and by
+// GET /auth/me. Minimal on purpose — no internal columns. WHY: desktop and
+// Android clients need the user profile (login for the games player tag,
+// avatar for the auth chip); previously only the token was returned and the
+// clients' stored user stayed null forever.
+interface MeResponse {
+  id: string;
+  login: string;
+  avatar_url: string | null;
+}
+
+async function fetchMe(db: HonoEnv["Bindings"]["DB"], userId: string): Promise<MeResponse | null> {
+  const row = await db
+    .prepare("SELECT id, github_login, github_avatar_url FROM users WHERE id = ?")
+    .bind(userId)
+    .first<{ id: string; github_login: string; github_avatar_url: string | null }>();
+  if (!row) return null;
+  return { id: row.id, login: row.github_login, avatar_url: row.github_avatar_url };
+}
 
 const DEVICE_CODE_TTL_SEC = 900; // 15 min
 const CSRF_COOKIE_NAME = "oauth_csrf";
@@ -160,7 +181,21 @@ authRoutes.post("/auth/github/poll", async (c) => {
   if (!claim) return c.json({ status: "pending" }, 202);
 
   const token = await issueSession(c.env.DB, claim.authorized_user_id);
-  return c.json({ status: "complete", token });
+  // Include the user profile so clients can store token + profile atomically.
+  // Android already reads an optional `user` field here; desktop now does too.
+  const user = await fetchMe(c.env.DB, claim.authorized_user_id);
+  return c.json({ status: "complete", token, user });
+});
+
+// GET /auth/me — resolve the presented session token to the user's profile.
+// Used by clients to lazily heal a stored token that predates profile storage
+// (sign-ins before 2026-07 stored only the token).
+authRoutes.get("/auth/me", requireAuth, async (c) => {
+  const me = await fetchMe(c.env.DB, c.get("userId"));
+  // A valid session pointing at a missing user row means the account was
+  // deleted out from under the session — treat as signed out.
+  if (!me) throw unauthorized("unknown user");
+  return c.json(me);
 });
 
 function parseCookie(header: string, name: string): string | null {

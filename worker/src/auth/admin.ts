@@ -8,7 +8,9 @@ export async function isAdminAccount(
   env: { ADMIN_USER_IDS: string },
   userId: string
 ): Promise<boolean> {
-  const admins = env.ADMIN_USER_IDS.split(",").map((s) => s.trim()).filter(Boolean);
+  // ?? "" — a missing secret (fresh env, skipped CI secret-push) should deny
+  // cleanly as 403, not crash into a 500. Fail closed either way.
+  const admins = (env.ADMIN_USER_IDS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   if (admins.length === 0) return false;
   // Look up the caller's github identity and check its numeric id against the
   // allowlist. An account with no github identity (or an unknown userId) yields

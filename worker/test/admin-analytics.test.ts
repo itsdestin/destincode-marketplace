@@ -1,17 +1,12 @@
 import { env, SELF } from "cloudflare:test";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { createTestAccount, issueTestSession } from "./helpers";
 
+// Admin caller: an account whose github identity id matches ADMIN_USER_IDS
+// ("424242" in [env.test.vars]). isAdminAccount looks this up in `identities`.
 async function seedAdmin(): Promise<string> {
-  const now = Math.floor(Date.now() / 1000);
-  await env.DB.prepare("INSERT INTO users (id, github_login, created_at) VALUES (?, ?, ?)")
-    .bind("github:admin", "admin", now).run();
-  const token = "tok-admin";
-  const hash = Array.from(new Uint8Array(await crypto.subtle.digest(
-    "SHA-256", new TextEncoder().encode(token))))
-    .map(b => b.toString(16).padStart(2, "0")).join("");
-  await env.DB.prepare("INSERT INTO sessions (token_hash, user_id, created_at, last_used_at) VALUES (?, ?, ?, ?)")
-    .bind(hash, "github:admin", now, now).run();
-  return token;
+  const acct = await createTestAccount({ githubId: "424242" });
+  return issueTestSession(acct);
 }
 
 function mockCfSql(rows: unknown[]) {
@@ -26,7 +21,7 @@ function mockCfSql(rows: unknown[]) {
 const origFetch = globalThis.fetch;
 
 async function clearAuth() {
-  for (const t of ["sessions", "users"]) {
+  for (const t of ["sessions", "identities", "users"]) {
     await env.DB.prepare(`DELETE FROM ${t}`).run();
   }
 }

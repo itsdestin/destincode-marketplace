@@ -19,36 +19,47 @@
 //   - Session token is issued at poll time, not stashed in the DB between
 //     callback and poll. A crash or unclaimed poll leaves zero secrets at rest.
 //
-// device_codes.session_token_hash is kept for schema compatibility but no longer
-// written. It may be dropped in a future migration once all in-flight flows drain.
+// device_codes.session_token_hash was dropped in migration 0003 (accounts
+// rebuild) — it had been unwritten since session issuance moved to poll time.
 
 import { Hono } from "hono";
 import type { HonoEnv } from "../types";
 import { randomToken, randomUserCode, constantTimeEqual } from "../lib/crypto";
 import { badRequest, notFound, unauthorized } from "../lib/errors";
 import { buildAuthorizeUrl, exchangeCode, fetchGitHubUser } from "./github";
-import { issueSession } from "./sessions";
+import { issueSession, revokeSession } from "./sessions";
 import { requireAuth } from "./middleware";
-import { upsertUser } from "../db";
+import { resolveProviderSignIn } from "../db";
 
-// "Who am I" shape returned both in the poll completion payload and by
-// GET /auth/me. Minimal on purpose — no internal columns. WHY: desktop and
-// Android clients need the user profile (login for the games player tag,
-// avatar for the auth chip); previously only the token was returned and the
-// clients' stored user stayed null forever.
+// "Who am I" shape returned in the poll completion payload and by GET /auth/me.
+// `login` stays the GitHub login for player-tag continuity (Phase 0 games use
+// it); display_name/handle are the account-native fields Phase 2 switches to.
 interface MeResponse {
   id: string;
   login: string;
+  display_name: string;
   avatar_url: string | null;
+  handle: string | null;
 }
 
 async function fetchMe(db: HonoEnv["Bindings"]["DB"], userId: string): Promise<MeResponse | null> {
   const row = await db
-    .prepare("SELECT id, github_login, github_avatar_url FROM users WHERE id = ?")
+    .prepare(
+      `SELECT u.id, u.display_name, u.avatar_url, u.handle,
+              (SELECT provider_login FROM identities i
+                WHERE i.user_id = u.id AND i.provider = 'github') AS github_login
+       FROM users u WHERE u.id = ?`
+    )
     .bind(userId)
-    .first<{ id: string; github_login: string; github_avatar_url: string | null }>();
+    .first<{ id: string; display_name: string; avatar_url: string | null; handle: string | null; github_login: string | null }>();
   if (!row) return null;
-  return { id: row.id, login: row.github_login, avatar_url: row.github_avatar_url };
+  return {
+    id: row.id,
+    login: row.github_login ?? row.display_name, // non-GitHub accounts fall back
+    display_name: row.display_name,
+    avatar_url: row.avatar_url,
+    handle: row.handle,
+  };
 }
 
 const DEVICE_CODE_TTL_SEC = 900; // 15 min
@@ -132,8 +143,11 @@ authRoutes.get("/auth/github/callback", async (c) => {
 
   const accessToken = await exchangeCode(c.env.GH_CLIENT_ID, c.env.GH_CLIENT_SECRET, code);
   const gh = await fetchGitHubUser(accessToken);
-  const userId = `github:${gh.id}`;
-  await upsertUser(c.env.DB, { id: userId, github_login: gh.login, github_avatar_url: gh.avatar_url });
+  // Identity-based resolution: same GitHub user → same account across sign-ins.
+  const userId = await resolveProviderSignIn(c.env.DB, "github", String(gh.id), {
+    login: gh.login,
+    avatar_url: gh.avatar_url,
+  });
 
   // Store only the user_id. The session token is issued at poll time so no raw
   // bearer ever sits in D1.
@@ -185,6 +199,16 @@ authRoutes.post("/auth/github/poll", async (c) => {
   // Android already reads an optional `user` field here; desktop now does too.
   const user = await fetchMe(c.env.DB, claim.authorized_user_id);
   return c.json({ status: "complete", token, user });
+});
+
+// POST /auth/logout — server-side revocation of the presented session. The
+// client also clears its local token; this closes the "sign out only deleted
+// the local copy, D1 row lived forever" gap.
+authRoutes.post("/auth/logout", async (c) => {
+  const header = c.req.header("Authorization");
+  if (!header?.startsWith("Bearer ")) throw unauthorized();
+  await revokeSession(c.env.DB, header.slice(7));
+  return c.body(null, 204);
 });
 
 // GET /auth/me — resolve the presented session token to the user's profile.

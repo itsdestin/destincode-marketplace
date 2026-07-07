@@ -2,9 +2,10 @@
 // - Authorization: Bearer <session-token> → existing cookie-flow path (D1 sessions table).
 // - X-GitHub-PAT: <pat>                  → admin CLI skill path (PAT → GitHub /user).
 //
-// Sets userId on the Hono context either way. The admin allowlist check stays
-// inline in each route via isAdmin(env, userId) so 401 (not authenticated) and
-// 403 (authenticated but not an admin) remain distinguishable.
+// Sets userId (the platform account id) on the Hono context either way. The
+// admin allowlist check stays inline in each route via isAdminAccount(db, env,
+// userId) so 401 (not authenticated) and 403 (authenticated but not an admin)
+// remain distinguishable.
 import type { MiddlewareHandler } from "hono";
 import type { HonoEnv } from "../types";
 import { unauthorized } from "../lib/errors";
@@ -23,7 +24,8 @@ export const requireAdminAuth: MiddlewareHandler<HonoEnv> = async (c, next) => {
 
   const pat = c.req.header("X-GitHub-PAT");
   if (pat) {
-    const userId = await resolvePat(pat);
+    // resolvePat maps the PAT's GitHub identity to a platform account via the DB.
+    const userId = await resolvePat(c.env.DB, pat);
     if (!userId) throw unauthorized("invalid pat");
     c.set("userId", userId);
     return next();

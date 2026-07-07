@@ -6,7 +6,7 @@ export interface Env {
   APP_ANALYTICS?: AnalyticsEngineDataset;
   GH_CLIENT_ID: string;
   GH_CLIENT_SECRET: string;
-  ADMIN_USER_IDS: string;  // comma-separated user ids
+  ADMIN_USER_IDS: string;  // comma-separated GitHub numeric ids (matched via identities — see src/auth/admin.ts)
   // Cloudflare Analytics Engine SQL API credentials used ONLY by admin analytics
   // routes. CF_ANALYTICS_TOKEN is a narrow-scope token (Analytics Engine: Read)
   // distinct from the broader CF_API_TOKEN used by CI for `wrangler deploy`.
@@ -22,10 +22,21 @@ export interface Env {
 }
 
 export interface UserRow {
-  id: string;
-  github_login: string;
-  github_avatar_url: string | null;
+  id: string;               // opaque 'acct_<hex>' (legacy rows migrated) — never parse
+  display_name: string;
+  avatar_url: string | null;
+  handle: string | null;
+  status: string;           // 'active' | 'suspended' (tier-C stub)
   created_at: number;
+  deleted_at: number | null;
+}
+
+export interface IdentityRow {
+  provider: string;         // 'github' (later 'google')
+  provider_user_id: string;
+  user_id: string;
+  provider_login: string | null;
+  linked_at: number;
 }
 
 export interface SessionRow {

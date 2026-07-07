@@ -4,6 +4,9 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { randomToken, sha256Hex } from "../lib/crypto";
 
+// Sessions idle longer than this are invalid (and pruned by the daily cron).
+export const SESSION_MAX_IDLE_SEC = 90 * 24 * 3600;
+
 export async function issueSession(db: D1Database, userId: string): Promise<string> {
   const token = randomToken(32);
   const hash = await sha256Hex(token);
@@ -18,13 +21,20 @@ export async function issueSession(db: D1Database, userId: string): Promise<stri
 export async function resolveSession(db: D1Database, token: string): Promise<string | null> {
   const hash = await sha256Hex(token);
   const row = await db
-    .prepare("SELECT user_id FROM sessions WHERE token_hash = ?")
+    .prepare("SELECT user_id, last_used_at FROM sessions WHERE token_hash = ?")
     .bind(hash)
-    .first<{ user_id: string }>();
+    .first<{ user_id: string; last_used_at: number }>();
   if (!row) return null;
+  const now = Math.floor(Date.now() / 1000);
+  // Enforce idle expiry: a session untouched for longer than the idle window is
+  // dead. Delete it eagerly so the row doesn't linger until the cron prune.
+  if (row.last_used_at < now - SESSION_MAX_IDLE_SEC) {
+    await db.prepare("DELETE FROM sessions WHERE token_hash = ?").bind(hash).run();
+    return null;
+  }
   await db
     .prepare("UPDATE sessions SET last_used_at = ? WHERE token_hash = ?")
-    .bind(Math.floor(Date.now() / 1000), hash)
+    .bind(now, hash)
     .run();
   return row.user_id;
 }

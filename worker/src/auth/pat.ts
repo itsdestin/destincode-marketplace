@@ -1,9 +1,17 @@
-// Resolves a GitHub PAT to a userId ("github:<id>") by calling GitHub's /user
-// endpoint. Used by requireAdminAuth when the caller is the youcoded-admin
-// analytics skill (CLI-driven — can't participate in the browser OAuth cookie flow).
+// Resolves a GitHub PAT to a platform account id (acct_<hex>) by calling
+// GitHub's /user endpoint and mapping the returned numeric id through the
+// `identities` table. Used by requireAdminAuth when the caller is the
+// youcoded-admin analytics skill (CLI-driven — can't participate in the
+// browser OAuth cookie flow).
 //
-// Caching: 60s TTL per-token-hash. Keeps repeated admin calls off GitHub's
-// rate limit. Short enough that a revoked PAT stops working within a minute.
+// The admin must have signed into the marketplace at least once so their
+// github identity row exists; a PAT for an account we've never seen resolves
+// to null (no identity → no account).
+//
+// Caching: 60s TTL per-token-hash of the resolved account id. Keeps repeated
+// admin calls off GitHub's rate limit. Short enough that a revoked PAT stops
+// working within a minute.
+import type { D1Database } from "@cloudflare/workers-types";
 
 interface CacheEntry {
   userId: string;
@@ -25,7 +33,7 @@ async function hashToken(token: string): Promise<string> {
     .join("");
 }
 
-export async function resolvePat(token: string): Promise<string | null> {
+export async function resolvePat(db: D1Database, token: string): Promise<string | null> {
   if (!token) return null;
   const key = await hashToken(token);
   const cached = patCache.get(key);
@@ -41,9 +49,15 @@ export async function resolvePat(token: string): Promise<string | null> {
   if (!res.ok) return null;  // do NOT cache failures — a rotated PAT can start working
   const user = (await res.json()) as { id: number };
   if (typeof user.id !== "number") return null;
-  const userId = `github:${user.id}`;
-  patCache.set(key, { userId, expiresAt: Date.now() + TTL_MS });
-  return userId;
+  // Resolve the GitHub numeric id to the platform account via `identities`.
+  // Id-format-independent — no provider-prefixed id string is constructed here.
+  const row = await db
+    .prepare("SELECT user_id FROM identities WHERE provider = 'github' AND provider_user_id = ?")
+    .bind(String(user.id))
+    .first<{ user_id: string }>();
+  if (!row) return null;  // no linked account → treat as unresolvable (also not cached)
+  patCache.set(key, { userId: row.user_id, expiresAt: Date.now() + TTL_MS });
+  return row.user_id;
 }
 
 // Test-only helper to clear the module-level cache between runs.

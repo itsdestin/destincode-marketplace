@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { env } from "cloudflare:test";
-import app from "../src/index";
+import { app } from "../src/index";
 
 const LEGACY_PAYLOAD = {
   installId: "c4b2a8f0-0000-4000-8000-000000000000",

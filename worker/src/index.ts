@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { cors } from "hono/cors";
 import type { Env, HonoEnv } from "./types";
 import { authRoutes } from "./auth/routes";
+import { accountRoutes } from "./auth/account";
 import { installRoutes } from "./installs/routes";
 import { ratingRoutes } from "./ratings/routes";
 import { themeRoutes } from "./themes/routes";
@@ -11,6 +12,7 @@ import { reportRoutes } from "./reports/routes";
 import { appRoutes } from "./app/routes";
 import { adminAnalyticsRoutes } from "./admin/analytics";
 import { adminDashboardRoute } from "./admin/dashboard-route";
+import { pruneExpired } from "./maintenance";
 
 const app = new Hono<HonoEnv>();
 
@@ -47,7 +49,10 @@ const publicReadCors = cors({
 
 const strictCors = cors({
   origin: (origin) => (ALLOWED_ORIGINS.includes(origin ?? "") ? origin! : null),
-  allowMethods: ["GET", "POST", "DELETE"],
+  // PATCH/PUT added for the account endpoints (PATCH /auth/profile, PUT
+  // /auth/handle) — without them the browser preflight fails and the renderer
+  // can't call them under CORS (tests use SELF.fetch, which bypasses CORS).
+  allowMethods: ["GET", "POST", "PATCH", "PUT", "DELETE"],
   allowHeaders: ["Content-Type", "Authorization"],
   credentials: false,
 });
@@ -88,6 +93,7 @@ app.onError((err, c) => {
 
 app.get("/health", (c) => c.json({ ok: true }));
 app.route("/", authRoutes);
+app.route("/", accountRoutes);
 app.route("/", installRoutes);
 app.route("/", ratingRoutes);
 app.route("/", themeRoutes);
@@ -97,5 +103,18 @@ app.route("/", appRoutes);
 app.route("/", adminAnalyticsRoutes);
 app.route("/", adminDashboardRoute);
 
-export default app;
+// Export the fetch handler plus a scheduled() handler for the daily maintenance
+// cron. The export shape changes from `app` to `{ fetch, scheduled }`, but
+// SELF.fetch (and Cloudflare's runtime) accept either shape, so HTTP routing is
+// unchanged. Cron trigger is declared in wrangler.toml [triggers].
+export default {
+  fetch: app.fetch,
+  async scheduled(_event: ScheduledController, env: Env): Promise<void> {
+    await pruneExpired(env.DB, Math.floor(Date.now() / 1000));
+  },
+};
+// Also export the raw Hono app so tests that dispatch via `app.request(...)`
+// (rather than SELF.fetch) keep working after the default export became a
+// `{ fetch, scheduled }` module object.
+export { app };
 export type { Env };

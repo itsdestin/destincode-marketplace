@@ -88,9 +88,12 @@ ratingRoutes.get("/ratings/:plugin_id", async (c) => {
 
   // JOIN users so the React UI gets login + avatar in one round-trip.
   // LIMIT 50: hardcoded cap, no pagination for v1.
+  // Wire field names (user_login/user_avatar_url) are unchanged — clients already
+  // consume them — but they now map from the account-native display_name/avatar_url
+  // columns rather than the removed github_* columns (accounts rebuild, spec §1).
   const { results } = await c.env.DB
     .prepare(
-      `SELECT r.user_id, u.github_login, u.github_avatar_url,
+      `SELECT r.user_id, u.display_name, u.avatar_url,
               r.stars, r.review_text, r.created_at
        FROM ratings r
        JOIN users u ON u.id = r.user_id
@@ -101,8 +104,8 @@ ratingRoutes.get("/ratings/:plugin_id", async (c) => {
     .bind(pluginId)
     .all<{
       user_id: string;
-      github_login: string;
-      github_avatar_url: string | null;
+      display_name: string;
+      avatar_url: string | null;
       stars: number;
       review_text: string | null;
       created_at: number;
@@ -112,8 +115,8 @@ ratingRoutes.get("/ratings/:plugin_id", async (c) => {
     // Stable composite key for React list rendering — no separate id column exists.
     id: `${row.user_id}:${pluginId}`,
     user_id: row.user_id,
-    user_login: row.github_login,
-    user_avatar_url: row.github_avatar_url,
+    user_login: row.display_name,
+    user_avatar_url: row.avatar_url,
     stars: row.stars,
     review_text: row.review_text,
     created_at: row.created_at,

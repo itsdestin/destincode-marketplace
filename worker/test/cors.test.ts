@@ -113,6 +113,39 @@ describe("CORS — strict allowlist for writes & non-public paths", () => {
     expect(res.headers.get("Access-Control-Allow-Origin")).toBeNull();
   });
 
+  it("Preflight for PATCH /auth/profile from an allowed origin advertises PATCH and PUT", async () => {
+    // The account endpoints (PATCH /auth/profile, PUT /auth/handle) are called
+    // by the renderer directly under CORS — the preflight must advertise both
+    // methods or the browser blocks the actual request before it's sent.
+    const res = await SELF.fetch("https://test.local/auth/profile", {
+      method: "OPTIONS",
+      headers: {
+        Origin: "app://youcoded",
+        "Access-Control-Request-Method": "PATCH",
+        "Access-Control-Request-Headers": "Authorization, Content-Type",
+      },
+    });
+    expect(res.status).toBe(204);
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("app://youcoded");
+    const allowedMethods = res.headers.get("Access-Control-Allow-Methods") ?? "";
+    expect(allowedMethods).toContain("PATCH");
+    expect(allowedMethods).toContain("PUT");
+  });
+
+  it("Preflight for PUT /auth/handle from an allowed origin advertises PUT", async () => {
+    const res = await SELF.fetch("https://test.local/auth/handle", {
+      method: "OPTIONS",
+      headers: {
+        Origin: "app://youcoded",
+        "Access-Control-Request-Method": "PUT",
+        "Access-Control-Request-Headers": "Authorization, Content-Type",
+      },
+    });
+    expect(res.status).toBe(204);
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("app://youcoded");
+    expect(res.headers.get("Access-Control-Allow-Methods") ?? "").toContain("PUT");
+  });
+
   it("Multi-segment /ratings/foo/bar path falls through to strict (not a public read)", async () => {
     const res = await SELF.fetch("https://test.local/ratings/foo/bar", {
       method: "OPTIONS",

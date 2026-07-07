@@ -40,7 +40,8 @@ reportRoutes.post("/reports", requireAuth, async (c) => {
 // any open reports against it in a single step
 reportRoutes.delete("/admin/ratings/:user_id/:plugin_id", requireAuth, async (c) => {
   if (!isAdmin(c.env, c.get("userId"))) throw forbidden("admin only");
-  // user_id contains a colon (github:123) so it's URL-encoded in the path
+  // Account ids are opaque acct_<hex> (no special chars), but older admin
+  // tooling URL-encoded this segment — keep decoding; it's a no-op for acct_ ids.
   const userId = decodeURIComponent(c.req.param("user_id"));
   const pluginId = c.req.param("plugin_id");
   const res = await c.env.DB

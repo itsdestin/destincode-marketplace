@@ -24,11 +24,35 @@ export async function resolveProviderSignIn(
       .bind(profile.avatar_url, existing.user_id).run();
     return existing.user_id;
   }
+  // First sign-in: create account + identity. Two concurrent first sign-ins
+  // from the SAME provider user can both reach here (both saw no identity row
+  // above). Without care, the loser would 500 on the identities PK conflict
+  // and leave an orphaned users row. D1 has no interactive transactions, so:
+  //   1. run both INSERTs atomically via db.batch, with the identities insert
+  //      as ON CONFLICT DO NOTHING (the loser's identity insert is a no-op);
+  //   2. re-read the identity row — whoever's insert stuck owns the account;
+  //   3. if a racer won, delete OUR users row (it's the orphan — nothing
+  //      references it, since our identity insert was the no-op) and return
+  //      the winner's account id so both sign-ins converge on one account.
   const id = "acct_" + randomToken(16); // 32 hex chars, opaque
-  await db.prepare("INSERT INTO users (id, display_name, avatar_url, created_at) VALUES (?, ?, ?, ?)")
-    .bind(id, profile.login, profile.avatar_url, now).run();
-  await db.prepare("INSERT INTO identities (provider, provider_user_id, user_id, provider_login, linked_at) VALUES (?, ?, ?, ?, ?)")
-    .bind(provider, providerUserId, id, profile.login, now).run();
+  await db.batch([
+    db.prepare("INSERT INTO users (id, display_name, avatar_url, created_at) VALUES (?, ?, ?, ?)")
+      .bind(id, profile.login, profile.avatar_url, now),
+    db.prepare(
+      `INSERT INTO identities (provider, provider_user_id, user_id, provider_login, linked_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (provider, provider_user_id) DO NOTHING`
+    ).bind(provider, providerUserId, id, profile.login, now),
+  ]);
+  const resolved = await db
+    .prepare("SELECT user_id FROM identities WHERE provider = ? AND provider_user_id = ?")
+    .bind(provider, providerUserId)
+    .first<{ user_id: string }>();
+  if (resolved && resolved.user_id !== id) {
+    // A concurrent sign-in won the identity row: our users row is unreferenced.
+    await db.prepare("DELETE FROM users WHERE id = ?").bind(id).run();
+    return resolved.user_id;
+  }
   return id;
 }
 

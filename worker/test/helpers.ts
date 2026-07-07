@@ -1,5 +1,8 @@
-// Shared fixtures for the accounts schema. Tests must not hand-roll INSERTs
-// into users/identities — schema drift then breaks every file at once.
+// Shared fixtures for the accounts schema. New tests should use these helpers
+// rather than hand-rolling INSERTs into users/identities — schema drift then
+// breaks every file at once. A few admin/reports/stats fixtures still hand-roll
+// user rows (their literal admin ids are coupled to ADMIN_USER_IDS); those
+// migrate onto the helpers in Task 6 alongside the admin-identity rebuild.
 import { env, SELF } from "cloudflare:test";
 
 let seq = 0;
@@ -35,6 +38,11 @@ export async function issueTestSession(account: TestAccount): Promise<string> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ device_code }),
   });
+  // Fail loudly here: a broken fixture flow otherwise surfaces as a confusing
+  // downstream 401 in whichever test consumed the (undefined) token.
+  if (!poll.ok) {
+    throw new Error(`issueTestSession: poll failed with ${poll.status}: ${await poll.text()}`);
+  }
   const { token } = await poll.json() as { token: string };
   return token;
 }

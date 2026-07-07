@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { cors } from "hono/cors";
 import type { Env, HonoEnv } from "./types";
 import { authRoutes } from "./auth/routes";
+import { accountRoutes } from "./auth/account";
 import { installRoutes } from "./installs/routes";
 import { ratingRoutes } from "./ratings/routes";
 import { themeRoutes } from "./themes/routes";
@@ -89,6 +90,7 @@ app.onError((err, c) => {
 
 app.get("/health", (c) => c.json({ ok: true }));
 app.route("/", authRoutes);
+app.route("/", accountRoutes);
 app.route("/", installRoutes);
 app.route("/", ratingRoutes);
 app.route("/", themeRoutes);

@@ -178,5 +178,35 @@ describe("POST /auth/logout & session expiry", () => {
       headers: { Authorization: `Bearer ${token}` },
     });
     expect(me.status).toBe(401);
+
+    // resolveSession deletes the stale row eagerly (not just on the cron), so the
+    // row is gone the moment an expired token is presented.
+    const remaining = await env.DB.prepare("SELECT count(*) AS n FROM sessions WHERE user_id = ?")
+      .bind(acct.userId).first<{ n: number }>();
+    expect(remaining!.n).toBe(0);
+  });
+
+  it("returns 401 on logout without a token and is idempotent on an already-revoked token", async () => {
+    const acct = await createTestAccount();
+    const token = await issueTestSession(acct);
+
+    // No Authorization header → 401.
+    const noAuth = await SELF.fetch("https://test.local/auth/logout", { method: "POST" });
+    expect(noAuth.status).toBe(401);
+
+    // First logout revokes the session.
+    const first = await SELF.fetch("https://test.local/auth/logout", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(first.status).toBe(204);
+
+    // Repeat logout with the same (now-revoked) token still returns 204 — the
+    // DELETE is a no-op, so revocation is idempotent.
+    const second = await SELF.fetch("https://test.local/auth/logout", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(second.status).toBe(204);
   });
 });

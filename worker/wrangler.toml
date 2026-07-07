@@ -3,6 +3,9 @@ main = "src/index.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
+[triggers]
+crons = ["17 6 * * *"]   # daily maintenance: prune sessions/handles/device codes
+
 [[d1_databases]]
 binding = "DB"
 database_name = "marketplace"

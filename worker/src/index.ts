@@ -11,6 +11,7 @@ import { reportRoutes } from "./reports/routes";
 import { appRoutes } from "./app/routes";
 import { adminAnalyticsRoutes } from "./admin/analytics";
 import { adminDashboardRoute } from "./admin/dashboard-route";
+import { pruneExpired } from "./maintenance";
 
 const app = new Hono<HonoEnv>();
 
@@ -97,5 +98,18 @@ app.route("/", appRoutes);
 app.route("/", adminAnalyticsRoutes);
 app.route("/", adminDashboardRoute);
 
-export default app;
+// Export the fetch handler plus a scheduled() handler for the daily maintenance
+// cron. The export shape changes from `app` to `{ fetch, scheduled }`, but
+// SELF.fetch (and Cloudflare's runtime) accept either shape, so HTTP routing is
+// unchanged. Cron trigger is declared in wrangler.toml [triggers].
+export default {
+  fetch: app.fetch,
+  async scheduled(_event: ScheduledController, env: Env): Promise<void> {
+    await pruneExpired(env.DB, Math.floor(Date.now() / 1000));
+  },
+};
+// Also export the raw Hono app so tests that dispatch via `app.request(...)`
+// (rather than SELF.fetch) keep working after the default export became a
+// `{ fetch, scheduled }` module object.
+export { app };
 export type { Env };

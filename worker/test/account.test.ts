@@ -84,3 +84,29 @@ describe("PUT /auth/handle", () => {
     expect(res.status).toBe(409); // cooldown
   });
 });
+
+describe("DELETE /auth/account", () => {
+  it("hard-deletes the account and cascades everything", async () => {
+    const acct = await createTestAccount({ handle: "goodbye" });
+    const token = await issueTestSession(acct);
+    const now = Math.floor(Date.now() / 1000);
+    // Seed rows in every cascading table
+    await env.DB.prepare("INSERT INTO installs (user_id, plugin_id, installed_at) VALUES (?, 'p1', ?)").bind(acct.userId, now).run();
+    await env.DB.prepare("INSERT INTO ratings (user_id, plugin_id, stars, created_at, updated_at) VALUES (?, 'p1', 5, ?, ?)").bind(acct.userId, now, now).run();
+    await env.DB.prepare("INSERT INTO theme_likes (user_id, theme_id, liked_at) VALUES (?, 't1', ?)").bind(acct.userId, now).run();
+
+    const res = await authed("/auth/account", token, { method: "DELETE" });
+    expect(res.status).toBe(204);
+
+    for (const [table, col] of [["users", "id"], ["identities", "user_id"], ["sessions", "user_id"], ["installs", "user_id"], ["ratings", "user_id"], ["theme_likes", "user_id"]] as const) {
+      const row = await env.DB.prepare(`SELECT count(*) AS n FROM ${table} WHERE ${col} = ?`).bind(acct.userId).first<{ n: number }>();
+      expect(row!.n, table).toBe(0);
+    }
+    // The freed handle enters cooldown
+    const rel = await env.DB.prepare("SELECT 1 AS one FROM handle_releases WHERE handle = 'goodbye'").first();
+    expect(rel).not.toBeNull();
+    // The presented token is dead (its session row cascaded)
+    const me = await authed("/auth/me", token);
+    expect(me.status).toBe(401);
+  });
+});

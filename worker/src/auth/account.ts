@@ -60,11 +60,53 @@ accountRoutes.put("/auth/handle", requireAuth, async (c) => {
     throw e;
   }
 
-  // Release the previous handle into cooldown AFTER the rename succeeds.
+  // Atomicity fix (Task 4 quality review): the rename UPDATE and the
+  // handle_releases INSERT must land together. Two separate statements meant a
+  // crash between them would leave the old handle un-cooled (sniping window).
+  // D1 `batch()` runs the array as one implicit transaction. The UNIQUE→409
+  // path is preserved: D1 batch rejects with the failing statement's error, so
+  // a collision still throws an Error whose message contains "UNIQUE" (verified
+  // empirically by the taken-handle test). Conditional shape: when there's an
+  // old handle to release we batch both statements; otherwise just the rename.
+  const stmts = [
+    c.env.DB.prepare("UPDATE users SET handle = ? WHERE id = ?").bind(handle, userId),
+  ];
   if (current.handle) {
-    await c.env.DB
-      .prepare("INSERT OR REPLACE INTO handle_releases (handle, released_at) VALUES (?, ?)")
-      .bind(current.handle, now).run();
+    stmts.push(
+      c.env.DB
+        .prepare("INSERT OR REPLACE INTO handle_releases (handle, released_at) VALUES (?, ?)")
+        .bind(current.handle, now),
+    );
+  }
+  try {
+    await c.env.DB.batch(stmts);
+  } catch (e) {
+    // Unique index violation → taken. D1 surfaces it as a generic error;
+    // match on message to keep other failures loud.
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/UNIQUE/i.test(msg)) throw conflict("that handle is taken");
+    throw e;
   }
   return c.json({ handle });
+});
+
+// Hard delete (spec §5): the FK ON DELETE CASCADE design removes identities,
+// sessions, installs, ratings, theme likes, reports-as-reporter — everything.
+// No soft delete for users; status/deleted_at are tier-C *suspension* stubs.
+// Observed behavior: D1's FK ON DELETE CASCADE IS active in this toolchain —
+// the single `DELETE FROM users` empties identities/sessions/installs/ratings/
+// theme_likes (test asserts count=0 for all). No explicit child-delete fallback
+// needed. The release INSERT runs before the delete so the freed handle enters
+// cooldown even though the users row (and its handle) is about to vanish.
+accountRoutes.delete("/auth/account", requireAuth, async (c) => {
+  const userId = c.get("userId");
+  const now = Math.floor(Date.now() / 1000);
+  const row = await c.env.DB.prepare("SELECT handle FROM users WHERE id = ?")
+    .bind(userId).first<{ handle: string | null }>();
+  if (row?.handle) {
+    await c.env.DB.prepare("INSERT OR REPLACE INTO handle_releases (handle, released_at) VALUES (?, ?)")
+      .bind(row.handle, now).run();
+  }
+  await c.env.DB.prepare("DELETE FROM users WHERE id = ?").bind(userId).run();
+  return c.body(null, 204);
 });

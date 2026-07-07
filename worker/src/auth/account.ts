@@ -39,16 +39,20 @@ accountRoutes.put("/auth/handle", requireAuth, async (c) => {
   const userId = c.get("userId");
   const now = Math.floor(Date.now() / 1000);
 
+  // The no-op check runs BEFORE the cooldown query: a user re-PUTting the
+  // handle they already own must always 200, even if a spurious/stale
+  // handle_releases row for that handle exists (it would otherwise 409 them
+  // out of their own name).
+  const current = await c.env.DB.prepare("SELECT handle FROM users WHERE id = ?")
+    .bind(userId).first<{ handle: string | null }>();
+  if (!current) throw notFound("unknown user");
+  if (current.handle === handle) return c.json({ handle }); // no-op rename
+
   // Cooldown check (anti-sniping, spec §2): a freed handle stays locked 30 days.
   const cooling = await c.env.DB
     .prepare("SELECT 1 AS one FROM handle_releases WHERE handle = ? AND released_at >= ?")
     .bind(handle, now - HANDLE_COOLDOWN_SEC).first();
   if (cooling) throw conflict("that handle was recently released and is in cooldown");
-
-  const current = await c.env.DB.prepare("SELECT handle FROM users WHERE id = ?")
-    .bind(userId).first<{ handle: string | null }>();
-  if (!current) throw notFound("unknown user");
-  if (current.handle === handle) return c.json({ handle }); // no-op rename
 
   // Atomicity fix (Task 4 quality review): the rename UPDATE and the
   // handle_releases INSERT must land together. Two separate statements meant a
@@ -87,17 +91,21 @@ accountRoutes.put("/auth/handle", requireAuth, async (c) => {
 // Observed behavior: D1's FK ON DELETE CASCADE IS active in this toolchain —
 // the single `DELETE FROM users` empties identities/sessions/installs/ratings/
 // theme_likes (test asserts count=0 for all). No explicit child-delete fallback
-// needed. The release INSERT runs before the delete so the freed handle enters
-// cooldown even though the users row (and its handle) is about to vanish.
+// needed. The handle release + user delete run as one DB.batch (implicit
+// transaction): INSERT..SELECT reads the handle inside the same transaction
+// that deletes the row, so there's no read round-trip and no window where a
+// concurrent rename between a separate read and the DELETE loses cooldown.
+// Deliberate trade-off: after deletion the old handle is cooldown-locked 30
+// days for EVERYONE — including the departed user if they re-register. No
+// owner exemption is possible (the identity row is gone); spec §2 anti-sniping.
 accountRoutes.delete("/auth/account", requireAuth, async (c) => {
   const userId = c.get("userId");
   const now = Math.floor(Date.now() / 1000);
-  const row = await c.env.DB.prepare("SELECT handle FROM users WHERE id = ?")
-    .bind(userId).first<{ handle: string | null }>();
-  if (row?.handle) {
-    await c.env.DB.prepare("INSERT OR REPLACE INTO handle_releases (handle, released_at) VALUES (?, ?)")
-      .bind(row.handle, now).run();
-  }
-  await c.env.DB.prepare("DELETE FROM users WHERE id = ?").bind(userId).run();
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      "INSERT OR REPLACE INTO handle_releases (handle, released_at) SELECT handle, ? FROM users WHERE id = ? AND handle IS NOT NULL"
+    ).bind(now, userId),
+    c.env.DB.prepare("DELETE FROM users WHERE id = ?").bind(userId),
+  ]);
   return c.body(null, 204);
 });

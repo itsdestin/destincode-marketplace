@@ -109,4 +109,19 @@ describe("DELETE /auth/account", () => {
     const me = await authed("/auth/me", token);
     expect(me.status).toBe(401);
   });
+
+  it("deletes an account with no handle without creating a release row", async () => {
+    const acct = await createTestAccount(); // handle stays NULL
+    const token = await issueTestSession(acct);
+    // Count before/after so the assertion is robust to rows other tests seeded.
+    const before = await env.DB.prepare("SELECT count(*) AS n FROM handle_releases").first<{ n: number }>();
+
+    const res = await authed("/auth/account", token, { method: "DELETE" });
+    expect(res.status).toBe(204);
+
+    const gone = await env.DB.prepare("SELECT count(*) AS n FROM users WHERE id = ?").bind(acct.userId).first<{ n: number }>();
+    expect(gone!.n).toBe(0);
+    const after = await env.DB.prepare("SELECT count(*) AS n FROM handle_releases").first<{ n: number }>();
+    expect(after!.n).toBe(before!.n); // no handle → no cooldown row
+  });
 });

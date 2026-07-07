@@ -49,7 +49,10 @@ const publicReadCors = cors({
 
 const strictCors = cors({
   origin: (origin) => (ALLOWED_ORIGINS.includes(origin ?? "") ? origin! : null),
-  allowMethods: ["GET", "POST", "DELETE"],
+  // PATCH/PUT added for the account endpoints (PATCH /auth/profile, PUT
+  // /auth/handle) — without them the browser preflight fails and the renderer
+  // can't call them under CORS (tests use SELF.fetch, which bypasses CORS).
+  allowMethods: ["GET", "POST", "PATCH", "PUT", "DELETE"],
   allowHeaders: ["Content-Type", "Authorization"],
   credentials: false,
 });

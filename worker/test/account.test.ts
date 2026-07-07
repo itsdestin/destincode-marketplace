@@ -50,12 +50,23 @@ describe("PUT /auth/handle", () => {
   });
 
   it("refuses a handle already taken (409)", async () => {
-    const a = await createTestAccount({ handle: "taken" });
-    void a;
+    await createTestAccount({ handle: "taken" });
     const b = await createTestAccount();
     const token = await issueTestSession(b);
     const res = await authed("/auth/handle", token, { method: "PUT", body: JSON.stringify({ handle: "taken" }) });
     expect(res.status).toBe(409);
+  });
+
+  it("re-PUTting the current handle is a 200 no-op with no cooldown release", async () => {
+    // A spurious handle_releases row here would cooldown-lock a handle that
+    // was never actually freed — the user still owns it.
+    const acct = await createTestAccount({ handle: "keeper" });
+    const token = await issueTestSession(acct);
+    const res = await authed("/auth/handle", token, { method: "PUT", body: JSON.stringify({ handle: "keeper" }) });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ handle: "keeper" });
+    const rel = await env.DB.prepare("SELECT handle FROM handle_releases WHERE handle = 'keeper'").first();
+    expect(rel).toBeNull();
   });
 
   it("puts the old handle into a 30-day cooldown on rename, and refuses cooldown handles", async () => {

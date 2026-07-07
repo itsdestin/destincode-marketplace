@@ -4,15 +4,12 @@ import { requireAuth } from "../auth/middleware";
 import { badRequest, forbidden, notFound, tooMany } from "../lib/errors";
 import { randomToken } from "../lib/crypto";
 import { checkRateLimit } from "../lib/rate-limit";
+import { isAdminAccount } from "../auth/admin";
 
 export const reportRoutes = new Hono<HonoEnv>();
 
-// Admin check: env var is a comma-separated user id list, populated via secret
-// in prod and via test/setup.ts or [env.test.vars] in tests.
-function isAdmin(env: { ADMIN_USER_IDS: string }, userId: string): boolean {
-  const admins = env.ADMIN_USER_IDS.split(",").map((s) => s.trim()).filter(Boolean);
-  return admins.includes(userId);
-}
+// Admin check now lives in ../auth/admin: ADMIN_USER_IDS holds bare GitHub
+// numeric ids, matched against the caller's github identity via `identities`.
 
 // POST /reports — any authed user flags a rating for moderation review
 reportRoutes.post("/reports", requireAuth, async (c) => {
@@ -39,7 +36,7 @@ reportRoutes.post("/reports", requireAuth, async (c) => {
 // DELETE /admin/ratings/:user_id/:plugin_id — admin hides a rating and resolves
 // any open reports against it in a single step
 reportRoutes.delete("/admin/ratings/:user_id/:plugin_id", requireAuth, async (c) => {
-  if (!isAdmin(c.env, c.get("userId"))) throw forbidden("admin only");
+  if (!(await isAdminAccount(c.env.DB, c.env, c.get("userId")))) throw forbidden("admin only");
   // Account ids are opaque acct_<hex> (no special chars), but older admin
   // tooling URL-encoded this segment — keep decoding; it's a no-op for acct_ ids.
   const userId = decodeURIComponent(c.req.param("user_id"));
@@ -61,7 +58,7 @@ reportRoutes.delete("/admin/ratings/:user_id/:plugin_id", requireAuth, async (c)
 
 // GET /admin/reports — admin queue of unresolved reports with rating context
 reportRoutes.get("/admin/reports", requireAuth, async (c) => {
-  if (!isAdmin(c.env, c.get("userId"))) throw forbidden("admin only");
+  if (!(await isAdminAccount(c.env.DB, c.env, c.get("userId")))) throw forbidden("admin only");
   const { results } = await c.env.DB
     .prepare(
       `SELECT r.*, rt.stars, rt.review_text

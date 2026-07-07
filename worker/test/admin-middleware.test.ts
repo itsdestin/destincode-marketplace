@@ -4,21 +4,10 @@ import { Hono } from "hono";
 import { requireAdminAuth } from "../src/auth/admin-middleware";
 import type { HonoEnv } from "../src/types";
 import { __resetPatCacheForTests } from "../src/auth/pat";
+import { isAdminAccount } from "../src/auth/admin";
+import { createTestAccount, issueTestSession } from "./helpers";
 
 const origFetch = globalThis.fetch;
-
-async function seed(userId: string, login = "u"): Promise<string> {
-  const now = Math.floor(Date.now() / 1000);
-  await env.DB.prepare("INSERT INTO users (id, display_name, created_at) VALUES (?, ?, ?)")
-    .bind(userId, login, now).run();
-  const token = `tok-${userId}`;
-  const hash = Array.from(new Uint8Array(await crypto.subtle.digest(
-    "SHA-256", new TextEncoder().encode(token))))
-    .map(b => b.toString(16).padStart(2, "0")).join("");
-  await env.DB.prepare("INSERT INTO sessions (token_hash, user_id, created_at, last_used_at) VALUES (?, ?, ?, ?)")
-    .bind(hash, userId, now, now).run();
-  return token;
-}
 
 function buildApp() {
   const app = new Hono<HonoEnv>();
@@ -32,7 +21,7 @@ function buildApp() {
 
 describe("requireAdminAuth", () => {
   beforeEach(async () => {
-    for (const t of ["sessions","users"]) {
+    for (const t of ["sessions","identities","users"]) {
       await env.DB.prepare(`DELETE FROM ${t}`).run();
     }
     __resetPatCacheForTests();
@@ -41,14 +30,17 @@ describe("requireAdminAuth", () => {
 
   it("accepts a valid session Bearer token", async () => {
     const app = buildApp();
-    const token = await seed("github:42");
+    const acct = await createTestAccount({ githubId: "42" });
+    const token = await issueTestSession(acct);
     const res = await app.request("/probe", { headers: { Authorization: `Bearer ${token}` } }, env);
     expect(res.status).toBe(200);
     const body = await res.json<{ userId: string }>();
-    expect(body.userId).toBe("github:42");
+    expect(body.userId).toBe(acct.userId);
   });
 
   it("accepts a valid X-GitHub-PAT header", async () => {
+    // PAT resolves via GitHub /user (mocked id) → identities → account id.
+    const acct = await createTestAccount({ githubId: "7" });
     globalThis.fetch = vi.fn(async () =>
       new Response(JSON.stringify({ id: 7 }), { status: 200 })
     ) as any;
@@ -56,7 +48,7 @@ describe("requireAdminAuth", () => {
     const res = await app.request("/probe", { headers: { "X-GitHub-PAT": "ghp_fake" } }, env);
     expect(res.status).toBe(200);
     const body = await res.json<{ userId: string }>();
-    expect(body.userId).toBe("github:7");
+    expect(body.userId).toBe(acct.userId);
   });
 
   it("rejects a request with neither header", async () => {
@@ -76,5 +68,25 @@ describe("requireAdminAuth", () => {
     const app = buildApp();
     const res = await app.request("/probe", { headers: { Authorization: "Bearer not-a-real-token" } }, env);
     expect(res.status).toBe(401);
+  });
+});
+
+describe("isAdminAccount", () => {
+  beforeEach(async () => {
+    for (const t of ["identities", "users"]) {
+      await env.DB.prepare(`DELETE FROM ${t}`).run();
+    }
+  });
+
+  it("admits an account whose github identity is allowlisted", async () => {
+    const acct = await createTestAccount({ githubId: "777001" });
+    expect(await isAdminAccount(env.DB, { ADMIN_USER_IDS: "777001, 888002" }, acct.userId)).toBe(true);
+  });
+
+  it("rejects non-allowlisted, empty allowlist, and unknown accounts", async () => {
+    const acct = await createTestAccount({ githubId: "777003" });
+    expect(await isAdminAccount(env.DB, { ADMIN_USER_IDS: "999999" }, acct.userId)).toBe(false);
+    expect(await isAdminAccount(env.DB, { ADMIN_USER_IDS: "" }, acct.userId)).toBe(false);
+    expect(await isAdminAccount(env.DB, { ADMIN_USER_IDS: "777003" }, "acct_nonexistent")).toBe(false);
   });
 });

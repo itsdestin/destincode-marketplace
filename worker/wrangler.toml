@@ -37,7 +37,9 @@ migrations_dir = "migrations"
 [env.test.vars]
 GH_CLIENT_ID = "test"
 GH_CLIENT_SECRET = "test"
-ADMIN_USER_IDS = "github:admin"
+# Bare GitHub numeric ids (comma-separated). Admin-ness is decided by matching
+# the caller's github identity in `identities` — NOT the account id (spec §1).
+ADMIN_USER_IDS = "424242"
 CF_ACCOUNT_ID = "test-account"
 CF_ANALYTICS_TOKEN = "test-token"
 # Non-empty defaults so admin-analytics tests can verify cutover + filter

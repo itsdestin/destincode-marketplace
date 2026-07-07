@@ -1,8 +1,10 @@
 // Shared fixtures for the accounts schema. New tests should use these helpers
 // rather than hand-rolling INSERTs into users/identities — schema drift then
-// breaks every file at once. A few admin/reports/stats fixtures still hand-roll
-// user rows (their literal admin ids are coupled to ADMIN_USER_IDS); those
-// migrate onto the helpers in Task 6 alongside the admin-identity rebuild.
+// breaks every file at once. Authenticated callers (especially admins, whose
+// github identity id must match ADMIN_USER_IDS) go through createTestAccount +
+// issueTestSession. Some tests still INSERT plain user rows directly, but only
+// as opaque foreign-key targets (rating/install owners, stats data) — never as
+// callers — so they need no session or identity.
 import { env, SELF } from "cloudflare:test";
 
 let seq = 0;

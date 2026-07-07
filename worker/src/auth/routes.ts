@@ -27,7 +27,7 @@ import type { HonoEnv } from "../types";
 import { randomToken, randomUserCode, constantTimeEqual } from "../lib/crypto";
 import { badRequest, notFound, unauthorized } from "../lib/errors";
 import { buildAuthorizeUrl, exchangeCode, fetchGitHubUser } from "./github";
-import { issueSession } from "./sessions";
+import { issueSession, revokeSession } from "./sessions";
 import { requireAuth } from "./middleware";
 import { resolveProviderSignIn } from "../db";
 
@@ -199,6 +199,16 @@ authRoutes.post("/auth/github/poll", async (c) => {
   // Android already reads an optional `user` field here; desktop now does too.
   const user = await fetchMe(c.env.DB, claim.authorized_user_id);
   return c.json({ status: "complete", token, user });
+});
+
+// POST /auth/logout — server-side revocation of the presented session. The
+// client also clears its local token; this closes the "sign out only deleted
+// the local copy, D1 row lived forever" gap.
+authRoutes.post("/auth/logout", async (c) => {
+  const header = c.req.header("Authorization");
+  if (!header?.startsWith("Bearer ")) throw unauthorized();
+  await revokeSession(c.env.DB, header.slice(7));
+  return c.body(null, 204);
 });
 
 // GET /auth/me — resolve the presented session token to the user's profile.

@@ -147,3 +147,36 @@ describe("GET /auth/github/callback CSRF protection", () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe("POST /auth/logout & session expiry", () => {
+  it("revokes the presented session server-side", async () => {
+    const acct = await createTestAccount();
+    const token = await issueTestSession(acct);
+
+    const out = await SELF.fetch("https://test.local/auth/logout", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(out.status).toBe(204);
+
+    // Token no longer resolves
+    const me = await SELF.fetch("https://test.local/auth/me", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(me.status).toBe(401);
+  });
+
+  it("rejects sessions idle for more than 90 days", async () => {
+    const acct = await createTestAccount();
+    const token = await issueTestSession(acct);
+    // Age the session past the idle limit by editing last_used_at directly.
+    const staleTs = Math.floor(Date.now() / 1000) - 91 * 24 * 3600;
+    await env.DB.prepare("UPDATE sessions SET last_used_at = ? WHERE user_id = ?")
+      .bind(staleTs, acct.userId).run();
+
+    const me = await SELF.fetch("https://test.local/auth/me", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(me.status).toBe(401);
+  });
+});

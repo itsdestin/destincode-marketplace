@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 async function seedAdmin(): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
-  await env.DB.prepare("INSERT INTO users (id, github_login, created_at) VALUES (?, ?, ?)")
+  await env.DB.prepare("INSERT INTO users (id, display_name, created_at) VALUES (?, ?, ?)")
     .bind("github:admin", "admin", now).run();
   const token = "tok-admin";
   const hash = Array.from(new Uint8Array(await crypto.subtle.digest(

@@ -1,5 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { describe, it, expect } from "vitest";
+import { createTestAccount, issueTestSession } from "./helpers";
 
 describe("POST /auth/github/start", () => {
   it("returns a device_code, user_code, and auth URL", async () => {
@@ -43,16 +44,12 @@ describe("POST /auth/github/poll", () => {
     const start = await SELF.fetch("https://test.local/auth/github/start", { method: "POST" });
     const { device_code, user_code } = await start.json() as { device_code: string; user_code: string };
 
-    // Simulate the callback having completed: a user row exists and the
-    // device_codes row has authorized_user_id set. This bypasses GitHub.
-    const now = Math.floor(Date.now() / 1000);
-    await env.DB
-      .prepare("INSERT INTO users (id, github_login, github_avatar_url, created_at) VALUES (?, ?, ?, ?)")
-      .bind("github:123", "octocat", "https://avatars.example/octocat.png", now)
-      .run();
+    // Simulate the callback having completed: an account exists and the
+    // device_codes row has authorized_user_id set to its opaque id. Bypasses GitHub.
+    const account = await createTestAccount({ login: "octocat" });
     await env.DB
       .prepare("UPDATE device_codes SET authorized_user_id = ? WHERE user_code = ?")
-      .bind("github:123", user_code)
+      .bind(account.userId, user_code)
       .run();
 
     const poll = await SELF.fetch("https://test.local/auth/github/poll", {
@@ -61,13 +58,20 @@ describe("POST /auth/github/poll", () => {
       body: JSON.stringify({ device_code }),
     });
     expect(poll.status).toBe(200);
-    const body = await poll.json() as { status: string; token: string; user: { id: string; login: string; avatar_url: string | null } };
+    const body = await poll.json() as { status: string; token: string; user: { id: string; login: string; display_name: string; avatar_url: string | null; handle: string | null } };
     expect(body.status).toBe("complete");
     // Token is freshly issued at poll time (64 hex chars from randomToken(32))
     expect(body.token).toMatch(/^[0-9a-f]{64}$/);
-    // The completion payload carries the user profile so clients can store
-    // token + profile together (games player tag needs `login`).
-    expect(body.user).toEqual({ id: "github:123", login: "octocat", avatar_url: "https://avatars.example/octocat.png" });
+    // The completion payload carries the account profile so clients can store
+    // token + profile together (games player tag needs `login`). `login` is the
+    // github provider_login; display_name is seeded from it, handle starts null.
+    expect(body.user).toEqual({
+      id: account.userId,
+      login: "octocat",
+      display_name: "octocat",
+      avatar_url: null,
+      handle: null,
+    });
 
     // device_codes row should be deleted so the token can't be re-claimed
     const row = await env.DB.prepare("SELECT 1 FROM device_codes WHERE device_code = ?")
@@ -85,35 +89,20 @@ describe("POST /auth/github/poll", () => {
 });
 
 describe("GET /auth/me", () => {
-  // Helper: complete a device-code flow and return the issued session token.
-  async function signIn(userId: string, login: string): Promise<string> {
-    const start = await SELF.fetch("https://test.local/auth/github/start", { method: "POST" });
-    const { device_code, user_code } = await start.json() as { device_code: string; user_code: string };
-    const now = Math.floor(Date.now() / 1000);
-    await env.DB
-      .prepare("INSERT OR IGNORE INTO users (id, github_login, created_at) VALUES (?, ?, ?)")
-      .bind(userId, login, now)
-      .run();
-    await env.DB
-      .prepare("UPDATE device_codes SET authorized_user_id = ? WHERE user_code = ?")
-      .bind(userId, user_code)
-      .run();
-    const poll = await SELF.fetch("https://test.local/auth/github/poll", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ device_code }),
-    });
-    const { token } = await poll.json() as { token: string };
-    return token;
-  }
-
   it("returns the signed-in user's profile for a valid session token", async () => {
-    const token = await signIn("github:456", "hubot");
+    const account = await createTestAccount({ login: "hubot" });
+    const token = await issueTestSession(account);
     const res = await SELF.fetch("https://test.local/auth/me", {
       headers: { Authorization: `Bearer ${token}` },
     });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ id: "github:456", login: "hubot", avatar_url: null });
+    expect(await res.json()).toEqual({
+      id: account.userId,
+      login: "hubot",
+      display_name: "hubot",
+      avatar_url: null,
+      handle: null,
+    });
   });
 
   it("returns 401 without a token or with an invalid token", async () => {

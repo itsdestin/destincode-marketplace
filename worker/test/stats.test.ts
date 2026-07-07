@@ -5,7 +5,7 @@ async function seedRatings(pluginId: string, starValues: number[]): Promise<void
   const now = Math.floor(Date.now() / 1000);
   for (let i = 0; i < starValues.length; i++) {
     const userId = `github:${pluginId}:${i}`;
-    await env.DB.prepare("INSERT INTO users (id, github_login, created_at) VALUES (?, ?, ?)")
+    await env.DB.prepare("INSERT INTO users (id, display_name, created_at) VALUES (?, ?, ?)")
       .bind(userId, `u${i}`, now).run();
     await env.DB.prepare("INSERT INTO installs (user_id, plugin_id, installed_at) VALUES (?, ?, ?)")
       .bind(userId, pluginId, now).run();
@@ -25,9 +25,9 @@ describe("GET /stats", () => {
 
   it("returns per-plugin install counts", async () => {
     const now = Math.floor(Date.now() / 1000);
-    await env.DB.prepare("INSERT INTO users (id, github_login, created_at) VALUES (?, ?, ?)")
+    await env.DB.prepare("INSERT INTO users (id, display_name, created_at) VALUES (?, ?, ?)")
       .bind("github:1", "u1", now).run();
-    await env.DB.prepare("INSERT INTO users (id, github_login, created_at) VALUES (?, ?, ?)")
+    await env.DB.prepare("INSERT INTO users (id, display_name, created_at) VALUES (?, ?, ?)")
       .bind("github:2", "u2", now).run();
     await env.DB.prepare("INSERT INTO installs (user_id, plugin_id, installed_at) VALUES (?, ?, ?)")
       .bind("github:1", "foo", now).run();
@@ -50,7 +50,7 @@ describe("GET /stats", () => {
 
   it("ignores hidden ratings in the average", async () => {
     const now = Math.floor(Date.now() / 1000);
-    await env.DB.prepare("INSERT INTO users (id, github_login, created_at) VALUES (?, ?, ?)")
+    await env.DB.prepare("INSERT INTO users (id, display_name, created_at) VALUES (?, ?, ?)")
       .bind("github:a", "a", now).run();
     await env.DB.prepare("INSERT INTO installs (user_id, plugin_id, installed_at) VALUES (?, ?, ?)")
       .bind("github:a", "foo", now).run();
@@ -65,7 +65,7 @@ describe("GET /stats", () => {
 
   it("includes per-theme like counts", async () => {
     const now = Math.floor(Date.now() / 1000);
-    await env.DB.prepare("INSERT INTO users (id, github_login, created_at) VALUES (?, ?, ?)")
+    await env.DB.prepare("INSERT INTO users (id, display_name, created_at) VALUES (?, ?, ?)")
       .bind("github:1", "u1", now).run();
     await env.DB.prepare("INSERT INTO theme_likes (user_id, theme_id, liked_at) VALUES (?, ?, ?)")
       .bind("github:1", "strawberry-kitty", now).run();

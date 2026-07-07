@@ -22,10 +22,21 @@ export interface Env {
 }
 
 export interface UserRow {
-  id: string;
-  github_login: string;
-  github_avatar_url: string | null;
+  id: string;               // opaque 'acct_<hex>' (legacy rows migrated) — never parse
+  display_name: string;
+  avatar_url: string | null;
+  handle: string | null;
+  status: string;           // 'active' | 'suspended' (tier-C stub)
   created_at: number;
+  deleted_at: number | null;
+}
+
+export interface IdentityRow {
+  provider: string;         // 'github' (later 'google')
+  provider_user_id: string;
+  user_id: string;
+  provider_login: string | null;
+  linked_at: number;
 }
 
 export interface SessionRow {

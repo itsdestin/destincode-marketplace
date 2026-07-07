@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 
 async function seed(userId: string, login = "u"): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
-  await env.DB.prepare("INSERT INTO users (id, github_login, created_at) VALUES (?, ?, ?)")
+  await env.DB.prepare("INSERT INTO users (id, display_name, created_at) VALUES (?, ?, ?)")
     .bind(userId, login, now).run();
   const token = `tok-${userId}`;
   const hash = Array.from(new Uint8Array(await crypto.subtle.digest(
@@ -24,7 +24,7 @@ describe("POST /reports", () => {
   it("records a report", async () => {
     const token = await seed("github:1");
     const now = Math.floor(Date.now() / 1000);
-    await env.DB.prepare("INSERT INTO users (id, github_login, created_at) VALUES (?, ?, ?)")
+    await env.DB.prepare("INSERT INTO users (id, display_name, created_at) VALUES (?, ?, ?)")
       .bind("github:99", "badactor", now).run();
     await env.DB.prepare("INSERT INTO installs (user_id, plugin_id, installed_at) VALUES (?, ?, ?)")
       .bind("github:99", "foo", now).run();
@@ -65,7 +65,7 @@ describe("DELETE /admin/ratings/:user_id/:plugin_id", () => {
   it("hides the rating and marks reports resolved for admins", async () => {
     const token = await seed("github:admin");
     const now = Math.floor(Date.now() / 1000);
-    await env.DB.prepare("INSERT INTO users (id, github_login, created_at) VALUES (?, ?, ?)")
+    await env.DB.prepare("INSERT INTO users (id, display_name, created_at) VALUES (?, ?, ?)")
       .bind("github:99", "badactor", now).run();
     await env.DB.prepare("INSERT INTO installs (user_id, plugin_id, installed_at) VALUES (?, ?, ?)")
       .bind("github:99", "foo", now).run();

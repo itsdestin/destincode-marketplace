@@ -8,6 +8,7 @@ describe("schema", () => {
     ).all<{ name: string }>();
     const names = results.map((r: { name: string }) => r.name);
     expect(names).toContain("users");
+    expect(names).toContain("identities");
     expect(names).toContain("sessions");
     expect(names).toContain("device_codes");
     expect(names).toContain("installs");

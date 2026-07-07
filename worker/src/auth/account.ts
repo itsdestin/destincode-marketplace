@@ -50,24 +50,15 @@ accountRoutes.put("/auth/handle", requireAuth, async (c) => {
   if (!current) throw notFound("unknown user");
   if (current.handle === handle) return c.json({ handle }); // no-op rename
 
-  try {
-    await c.env.DB.prepare("UPDATE users SET handle = ? WHERE id = ?").bind(handle, userId).run();
-  } catch (e) {
-    // Unique index violation → taken. D1 surfaces it as a generic error;
-    // match on message to keep other failures loud.
-    const msg = e instanceof Error ? e.message : String(e);
-    if (/UNIQUE/i.test(msg)) throw conflict("that handle is taken");
-    throw e;
-  }
-
   // Atomicity fix (Task 4 quality review): the rename UPDATE and the
   // handle_releases INSERT must land together. Two separate statements meant a
   // crash between them would leave the old handle un-cooled (sniping window).
-  // D1 `batch()` runs the array as one implicit transaction. The UNIQUE→409
-  // path is preserved: D1 batch rejects with the failing statement's error, so
-  // a collision still throws an Error whose message contains "UNIQUE" (verified
-  // empirically by the taken-handle test). Conditional shape: when there's an
-  // old handle to release we batch both statements; otherwise just the rename.
+  // D1 `batch()` runs the array as one implicit transaction and is the SOLE
+  // rename path. The UNIQUE→409 path is preserved: batch() rejects with the
+  // failing statement's error, so a collision still throws an Error whose
+  // message contains "UNIQUE" (verified empirically — the taken-handle test
+  // 409s through this catch). Conditional shape: when there's an old handle to
+  // release we batch both statements; otherwise just the rename.
   const stmts = [
     c.env.DB.prepare("UPDATE users SET handle = ? WHERE id = ?").bind(handle, userId),
   ];

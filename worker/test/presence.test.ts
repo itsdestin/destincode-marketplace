@@ -130,4 +130,80 @@ describe("PresenceRoom", () => {
     expect(st.status).toBe("in-game");
     wsA.close(); wsB.close();
   });
+
+  it("relays challenge-response to the challenger; drops responses to non-friends", async () => {
+    const a = await createTestAccount({ handle: `ra${Date.now() % 100000}` });
+    const b = await createTestAccount({ handle: `rb${Date.now() % 100000}` });
+    const s = await createTestAccount(); // stranger — must never receive a relay
+    await befriend(a.userId, b.userId);
+    const wsA = await connect(await issueTestSession(a));
+    await nextMessage(wsA, "presence");
+    const wsB = await connect(await issueTestSession(b));
+    await nextMessage(wsB, "presence");
+    const wsS = await connect(await issueTestSession(s));
+    await nextMessage(wsS, "presence");
+
+    // B responds to A's (implied) challenge — A receives it with from = B's card.
+    const respAtA = nextMessage(wsA, "challenge-response");
+    wsB.send(JSON.stringify({ type: "challenge-response", to: a.userId, accept: true }));
+    const resp = await respAtA;
+    expect(resp.from.id).toBe(b.userId);
+    expect(resp.accept).toBe(true);
+
+    // A response addressed to a NON-friend is silently dropped — nothing
+    // reaches the stranger (short timeout expecting rejection).
+    const atStranger = nextMessage(wsS, "challenge-response", 500);
+    wsB.send(JSON.stringify({ type: "challenge-response", to: s.userId, accept: true }));
+    await expect(atStranger).rejects.toThrow();
+    wsA.close(); wsB.close(); wsS.close();
+  });
+
+  it("multi-device: joins once, leaves on last disconnect, later sockets inherit status", async () => {
+    const a = await createTestAccount({ handle: `ma${Date.now() % 100000}` });
+    const b = await createTestAccount({ handle: `mb${Date.now() % 100000}` });
+    await befriend(a.userId, b.userId);
+    const tokenA = await issueTestSession(a);
+    const tokenB = await issueTestSession(b);
+    const wsA = await connect(tokenA);
+    await nextMessage(wsA, "presence");
+
+    // First B connection → exactly one user-joined at A.
+    const joined = nextMessage(wsA, "user-joined");
+    const wsB1 = await connect(tokenB);
+    await nextMessage(wsB1, "presence");
+    expect((await joined).user.id).toBe(b.userId);
+
+    // Second B connection → NO second user-joined (account already online).
+    const joinedAgain = nextMessage(wsA, "user-joined", 500);
+    const wsB2 = await connect(tokenB);
+    await nextMessage(wsB2, "presence");
+    await expect(joinedAgain).rejects.toThrow();
+
+    // B goes in-game from socket 1 — friends are told.
+    const statusAtA = nextMessage(wsA, "user-status");
+    wsB1.send(JSON.stringify({ type: "status", status: "in-game" }));
+    expect((await statusAtA).status).toBe("in-game");
+
+    // Socket 3 connects AFTER the status change — it must inherit "in-game"
+    // (regression guard for the connect-path status inheritance fix).
+    const wsB3 = await connect(tokenB);
+    await nextMessage(wsB3, "presence");
+
+    // Closing sockets 1 and 2 is NOT a leave — socket 3 is still open.
+    const leftEarly = nextMessage(wsA, "user-left", 500);
+    wsB1.close(1000, "bye"); wsB2.close(1000, "bye");
+    await expect(leftEarly).rejects.toThrow();
+
+    // A reconnects → fresh snapshot reads B's status from the ONLY remaining
+    // socket (the inheriting socket 3): must show in-game, not idle.
+    const wsA2 = await connect(tokenA);
+    const snap = await nextMessage(wsA2, "presence");
+    expect(snap.users).toEqual([expect.objectContaining({ id: b.userId, status: "in-game" })]);
+
+    // Last B socket closes → user-left fires.
+    const left = nextMessage(wsA, "user-left");
+    wsB3.close(1000, "bye");
+    expect((await left).id).toBe(b.userId);
+    wsA.close(); wsA2.close();
+  });
 });

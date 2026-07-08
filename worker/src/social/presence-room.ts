@@ -45,16 +45,23 @@ export class PresenceRoom {
     const card = await getUserCard(this.env.DB, userId);
     if (!card) return new Response("no such user", { status: 404 });
 
-    const wasOnline = this.socketsFor(userId).length > 0;
+    const existingSockets = this.socketsFor(userId);
+    const wasOnline = existingSockets.length > 0;
+    // New device inherits the account's live status — multi-device must not
+    // downgrade an in-game account to idle just because a second device joined.
+    const inheritedStatus: Status = wasOnline
+      ? (existingSockets[0]!.deserializeAttachment() as Attachment).status
+      : "idle";
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
     this.state.acceptWebSocket(server, [userId]); // tag = account id (multi-device: N sockets, one tag)
-    server.serializeAttachment({ userId, card, status: "idle" } satisfies Attachment);
+    server.serializeAttachment({ userId, card, status: inheritedStatus } satisfies Attachment);
 
     await this.sendSnapshot(userId, server);
     if (!wasOnline) {
-      // First connection for this account → tell online friends (spec §3 multi-device rule)
-      await this.broadcastToFriends(userId, { type: "user-joined", user: { ...card, status: "idle" } });
+      // First connection for this account → tell online friends (spec §3 multi-device rule).
+      // inheritedStatus is always "idle" here (!wasOnline) — used for consistency.
+      await this.broadcastToFriends(userId, { type: "user-joined", user: { ...card, status: inheritedStatus } });
     }
     // Keep a coarse last_seen alarm running while anyone is connected.
     if ((await this.state.storage.getAlarm()) === null) {
@@ -72,7 +79,7 @@ export class PresenceRoom {
 
     switch (data.type) {
       case "ping":
-        ws.send(JSON.stringify({ type: "pong" }));
+        this.safeSend(ws, JSON.stringify({ type: "pong" }));
         break;
       case "status": {
         const status: Status = data.status === "in-game" ? "in-game" : "idle";
@@ -90,23 +97,23 @@ export class PresenceRoom {
         // Friends-only relay (spec §3). Blocks always sever friendships, so
         // the friendship check also covers blocks (pokes keep the cache fresh).
         if (!(await this.isFriend(att.userId, target))) {
-          ws.send(JSON.stringify({ type: "challenge-failed", target }));
+          this.safeSend(ws, JSON.stringify({ type: "challenge-failed", target }));
           break;
         }
         const conns = this.socketsFor(target);
         if (conns.length === 0) {
-          ws.send(JSON.stringify({ type: "challenge-failed", target }));
+          this.safeSend(ws, JSON.stringify({ type: "challenge-failed", target }));
           break;
         }
         const msg = JSON.stringify({ type: "challenge", from: att.card, gameType: data.gameType, code: data.code });
-        for (const conn of conns) conn.send(msg);
+        for (const conn of conns) this.safeSend(conn, msg);
         break;
       }
       case "challenge-response": {
         const to = String(data.to ?? "");
         if (!(await this.isFriend(att.userId, to))) break;
         const msg = JSON.stringify({ type: "challenge-response", from: att.card, accept: Boolean(data.accept) });
-        for (const conn of this.socketsFor(to)) conn.send(msg);
+        for (const conn of this.socketsFor(to)) this.safeSend(conn, msg);
         break;
       }
     }
@@ -147,6 +154,12 @@ export class PresenceRoom {
     return this.state.getWebSockets(userId);
   }
 
+  /** send() can throw if the peer is mid-close; one bad socket must never
+   *  strand the rest of the loop (same pitfall as transcript readNewLines). */
+  private safeSend(sock: WebSocket, msg: string): void {
+    try { sock.send(msg); } catch { /* peer closing */ }
+  }
+
   private async friendsOf(userId: string): Promise<Set<string>> {
     let cached = this.friendCache.get(userId);
     if (!cached) {
@@ -164,17 +177,15 @@ export class PresenceRoom {
   private async sendSnapshot(userId: string, only?: WebSocket): Promise<void> {
     const friends = await this.friendsOf(userId);
     const users: Array<UserCard & { status: Status }> = [];
-    const seen = new Set<string>();
+    // No per-fid dedup needed: `friends` is a Set, so each id appears once.
     for (const fid of friends) {
-      const conns = this.socketsFor(fid);
-      const first = conns[0];
-      if (!first || seen.has(fid)) continue;
-      seen.add(fid);
+      const first = this.socketsFor(fid)[0];
+      if (!first) continue; // friend not online
       const att = first.deserializeAttachment() as Attachment;
       users.push({ ...att.card, status: att.status });
     }
     const msg = JSON.stringify({ type: "presence", users });
-    for (const sock of only ? [only] : this.socketsFor(userId)) sock.send(msg);
+    for (const sock of only ? [only] : this.socketsFor(userId)) this.safeSend(sock, msg);
   }
 
   /** Send an event to every ONLINE friend of userId (never to strangers). */
@@ -182,7 +193,7 @@ export class PresenceRoom {
     const friends = await this.friendsOf(userId);
     const msg = JSON.stringify(event);
     for (const fid of friends) {
-      for (const sock of this.socketsFor(fid)) sock.send(msg);
+      for (const sock of this.socketsFor(fid)) this.safeSend(sock, msg);
     }
   }
 

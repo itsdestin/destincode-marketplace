@@ -13,6 +13,36 @@ import type { UserCard } from "./graph";
 
 export const socialRoutes = new Hono<HonoEnv>();
 
+// Presence-cache invalidation, AWAITED inside mutation routes (not waitUntil):
+// deterministic ordering matters — the HTTP response must not race the DO's
+// visibility refresh (and the tests depend on that ordering). The try/catch
+// means a DO hiccup still can't fail the mutation that triggered it.
+async function pokePresence(env: HonoEnv["Bindings"], userIds: string[]): Promise<void> {
+  try {
+    const stub = env.PRESENCE.get(env.PRESENCE.idFromName("global"));
+    await stub.fetch("https://presence.internal/invalidate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_ids: userIds }),
+    });
+  } catch {
+    // Presence refresh is best-effort; the D1 mutation already committed.
+  }
+}
+
+// Authenticated WebSocket upgrade → forward to the single global PresenceRoom.
+// No ?username= trust (spec §3) — identity comes from the session token; the
+// DO receives the resolved account id via an internal header.
+socialRoutes.get("/social/presence", requireAuth, async (c) => {
+  if (c.req.header("Upgrade")?.toLowerCase() !== "websocket") {
+    throw badRequest("expected a websocket upgrade");
+  }
+  const stub = c.env.PRESENCE.get(c.env.PRESENCE.idFromName("global"));
+  const fwd = new Request("https://presence.internal/connect", c.req.raw);
+  fwd.headers.set("X-Presence-User", c.get("userId"));
+  return stub.fetch(fwd);
+});
+
 // Exact-match handle lookup → one minimal card. Prefix/fuzzy search is
 // deliberately excluded (user-enumeration surface — spec §2).
 socialRoutes.get("/social/users/:handle", requireAuth, async (c) => {
@@ -63,7 +93,7 @@ socialRoutes.post("/social/requests", requireAuth, async (c) => {
       // phantom pending request on an already-friends pair.
       c.env.DB.prepare("DELETE FROM friend_requests WHERE from_user = ? AND to_user = ?").bind(me, target.id),
     ]);
-    // Task 7 adds a presence poke here
+    await pokePresence(c.env, [me, target.id]); // new friendship → refresh both parties' presence views
     return c.json({ status: "friends" });
   }
 
@@ -126,7 +156,7 @@ socialRoutes.post("/social/requests/:id/accept", requireAuth, async (c) => {
     // Clear any inverse pending row so the pair is fully settled.
     c.env.DB.prepare("DELETE FROM friend_requests WHERE from_user = ? AND to_user = ?").bind(req.to_user, req.from_user),
   ]);
-  // Task 7 adds a presence poke here
+  await pokePresence(c.env, [req.from_user, req.to_user]); // new friendship → refresh both parties' presence views
   return c.json({ ok: true });
 });
 
@@ -181,8 +211,9 @@ socialRoutes.delete("/social/friends/:userId", requireAuth, async (c) => {
     .prepare("DELETE FROM friendships WHERE user_low = ? AND user_high = ?")
     .bind(low, high).run();
   if (res.meta.changes === 0) throw notFound("not friends");
-  // Task 7 adds a presence poke here — unfriending changes presence visibility,
-  // so the ex-friend must be told to drop this user from their roster.
+  // Unfriending changes presence visibility, so the ex-friend must be told to
+  // drop this user from their roster — refresh both parties' presence views.
+  await pokePresence(c.env, [me, other]);
   return c.json({ ok: true }); // silent — the ex-friend is never notified (spec §2)
 });
 
@@ -214,7 +245,7 @@ socialRoutes.post("/social/blocks", requireAuth, async (c) => {
     c.env.DB.prepare("DELETE FROM friend_requests WHERE (from_user = ? AND to_user = ?) OR (from_user = ? AND to_user = ?)")
       .bind(me, target, target, me),
   ]);
-  // Task 7 adds a presence poke here
+  await pokePresence(c.env, [me, target]); // block severed the friendship → refresh both parties' presence views
   return c.json({ ok: true });
 });
 

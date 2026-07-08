@@ -120,3 +120,6 @@ export default {
 // `{ fetch, scheduled }` module object.
 export { app };
 export type { Env };
+// Durable Object class must be exported from the worker entrypoint so the
+// runtime can instantiate it for the PRESENCE binding (spec §3).
+export { PresenceRoom } from "./social/presence-room";

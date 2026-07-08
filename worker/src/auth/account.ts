@@ -2,7 +2,8 @@
 // lives here (it's account profile); handle DISCOVERY is Phase 2 social/.
 import { Hono } from "hono";
 import type { HonoEnv } from "../types";
-import { badRequest, conflict, notFound } from "../lib/errors";
+import { badRequest, conflict, notFound, tooMany } from "../lib/errors";
+import { checkRateLimit } from "../lib/rate-limit";
 // Route body parsing through the shared helper so malformed JSON becomes a 400
 // (not an app.onError 500). See lib/parse-json.ts (knowledge-debt #1).
 import { parseJsonBody } from "../lib/parse-json";
@@ -107,4 +108,51 @@ accountRoutes.delete("/auth/account", requireAuth, async (c) => {
     c.env.DB.prepare("DELETE FROM users WHERE id = ?").bind(userId),
   ]);
   return c.body(null, 204);
+});
+
+// Data export (spec §5): one JSON of every row referencing the account that
+// the OWNER is allowed to see. Deliberate exclusions:
+//   - rows where this user is the BLOCKED party (blocks WHERE blocked = me) —
+//     that would reveal WHO blocked them, defeating the block's one-way secrecy.
+//   - session token hashes — only created_at/last_used_at timestamps leave here.
+//   - handle_releases — internal cooldown bookkeeping, not owner-facing (the
+//     released_by linkage isn't user data either).
+accountRoutes.get("/auth/export", requireAuth, async (c) => {
+  const userId = c.get("userId");
+  if (!(await checkRateLimit(`export:${userId}`, 5, 3600))) throw tooMany("too many export requests");
+  const db = c.env.DB;
+  const all = <T>(r: { results?: T[] }) => r.results ?? [];
+  const [account, identities, sessions, installs, ratings, themeLikes, reports, friendships, requestsIn, requestsOut, blocks] = await Promise.all([
+    db.prepare("SELECT id, display_name, avatar_url, handle, status, created_at, last_seen_at FROM users WHERE id = ?").bind(userId).first(),
+    db.prepare("SELECT provider, provider_user_id, provider_login, linked_at FROM identities WHERE user_id = ?").bind(userId).all(),
+    // Timestamps only — never token_hash. See exclusion note above.
+    db.prepare("SELECT created_at, last_used_at FROM sessions WHERE user_id = ?").bind(userId).all(),
+    db.prepare("SELECT * FROM installs WHERE user_id = ?").bind(userId).all(),
+    db.prepare("SELECT * FROM ratings WHERE user_id = ?").bind(userId).all(),
+    db.prepare("SELECT * FROM theme_likes WHERE user_id = ?").bind(userId).all(),
+    // reports SELECT * columns (migration 0003): id, rating_user_id,
+    // rating_plugin_id, reporter_user_id, reason, created_at, resolved_at,
+    // resolution. rating_user_id identifies the review the owner CHOSE to report
+    // (owner-visible); nothing here reveals block direction or another user's
+    // private data, so SELECT * is safe.
+    db.prepare("SELECT * FROM reports WHERE reporter_user_id = ?").bind(userId).all(),
+    db.prepare("SELECT user_low, user_high, created_at FROM friendships WHERE user_low = ? OR user_high = ?").bind(userId, userId).all(),
+    db.prepare("SELECT id, from_user, created_at FROM friend_requests WHERE to_user = ?").bind(userId).all(),
+    db.prepare("SELECT id, to_user, created_at FROM friend_requests WHERE from_user = ?").bind(userId).all(),
+    // Only blocks the user MADE (blocker = me) — never blocks AGAINST them.
+    db.prepare("SELECT blocked, created_at FROM blocks WHERE blocker = ?").bind(userId).all(),
+  ]);
+  return c.json({
+    exported_at: Math.floor(Date.now() / 1000),
+    account,
+    identities: all(identities),
+    sessions: all(sessions),
+    installs: all(installs),
+    ratings: all(ratings),
+    theme_likes: all(themeLikes),
+    reports: all(reports),
+    friendships: all(friendships),
+    friend_requests: { incoming: all(requestsIn), outgoing: all(requestsOut) },
+    blocks: all(blocks),
+  });
 });

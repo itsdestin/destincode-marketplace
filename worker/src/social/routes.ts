@@ -194,6 +194,10 @@ interface BlockRow extends UserCard {
 
 socialRoutes.post("/social/blocks", requireAuth, async (c) => {
   const me = c.get("userId");
+  // Unmetered block POSTs each run a SELECT + 3-statement batch and (after
+  // Task 7) a Durable Object invalidation — cheap ceiling now beats
+  // retrofitting later. Mirrors the lookup/send limiters above.
+  if (!(await checkRateLimit(`social-block:${me}`, 30, 3600))) throw tooMany("too many block changes");
   const body = await parseJsonBody<{ user_id?: string }>(c);
   const target = body.user_id;
   if (!target) throw badRequest("user_id is required");

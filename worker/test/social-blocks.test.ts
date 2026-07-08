@@ -15,9 +15,12 @@ describe("blocks", () => {
     const b = await createTestAccount();
     const now = Math.floor(Date.now() / 1000);
     const [low, high] = a.userId < b.userId ? [a.userId, b.userId] : [b.userId, a.userId];
+    // Pending requests in BOTH directions so each arm of the severing DELETE's
+    // OR clause is exercised against a real row.
     await env.DB.batch([
       env.DB.prepare("INSERT INTO friendships (user_low, user_high, created_at) VALUES (?, ?, ?)").bind(low, high, now),
       env.DB.prepare("INSERT INTO friend_requests (id, from_user, to_user, created_at) VALUES ('freq_x1', ?, ?, ?)").bind(b.userId, a.userId, now),
+      env.DB.prepare("INSERT INTO friend_requests (id, from_user, to_user, created_at) VALUES ('freq_x2', ?, ?, ?)").bind(a.userId, b.userId, now),
     ]);
     const token = await issueTestSession(a);
     const res = await authed("/social/blocks", token, { method: "POST", body: JSON.stringify({ user_id: b.userId }) });
@@ -59,6 +62,20 @@ describe("blocks", () => {
     const bToken = await issueTestSession(b);
     await authed("/social/blocks", aToken, { method: "POST", body: JSON.stringify({ user_id: b.userId }) });
     expect((await (await authed("/social/blocks", bToken)).json()) as any[]).toHaveLength(0);
+  });
+
+  it("unblock does NOT restore a severed friendship — ex-block is stranger-state", async () => {
+    const a = await createTestAccount();
+    const b = await createTestAccount();
+    const [low, high] = a.userId < b.userId ? [a.userId, b.userId] : [b.userId, a.userId];
+    await env.DB.prepare("INSERT INTO friendships (user_low, user_high, created_at) VALUES (?, ?, ?)")
+      .bind(low, high, Math.floor(Date.now() / 1000)).run();
+    const token = await issueTestSession(a);
+    await authed("/social/blocks", token, { method: "POST", body: JSON.stringify({ user_id: b.userId }) });
+    const un = await authed(`/social/blocks/${b.userId}`, token, { method: "DELETE" });
+    expect(un.status).toBe(200);
+    // The block severed the friendship; unblocking must leave the pair as strangers.
+    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM friendships").first<{ n: number }>())!.n).toBe(0);
   });
 
   it("unblocking someone you never blocked 404s", async () => {

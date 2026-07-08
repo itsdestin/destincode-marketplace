@@ -38,21 +38,25 @@ describe("friends list + unfriend", () => {
   });
 
   it("shows a friend added on EITHER side of the canonical pair", async () => {
-    // Pins the CASE/UNION logic: `me` must surface friends whether it sits in
-    // user_low or user_high of the friendships row.
+    // Pins the CASE join: `me` must surface friends whether it sits in
+    // user_low or user_high. createTestAccount ids sort by creation order, so
+    // creating one friend BEFORE me and one AFTER forces both orientations:
+    // (lowFriend < me) puts me in user_high; (me < highFriend) puts me in user_low.
+    const lowFriend = await createTestAccount();
     const me = await createTestAccount();
-    const other1 = await createTestAccount();
-    const other2 = await createTestAccount();
-    await befriend(me.userId, other1.userId);
-    await befriend(me.userId, other2.userId);
+    const highFriend = await createTestAccount();
+    // Guard the fixture assumption so a helpers.ts change can't silently
+    // collapse this back to a single orientation.
+    expect(lowFriend.userId < me.userId).toBe(true);
+    expect(me.userId < highFriend.userId).toBe(true);
+    await befriend(me.userId, lowFriend.userId);
+    await befriend(me.userId, highFriend.userId);
     const token = await issueTestSession(me);
     const res = await authed("/social/friends", token);
     expect(res.status).toBe(200);
     const list = (await res.json()) as any[];
     const ids = list.map((f) => f.id).sort();
-    // At least one of these pairs has `me` as user_low and the other as user_high
-    // (acct ids are lexicographically ordered by creation sequence).
-    expect(ids).toEqual([other1.userId, other2.userId].sort());
+    expect(ids).toEqual([lowFriend.userId, highFriend.userId].sort());
   });
 
   it("unfriend removes the row regardless of pair order and is silent", async () => {
@@ -61,6 +65,20 @@ describe("friends list + unfriend", () => {
     await befriend(a.userId, b.userId);
     const token = await issueTestSession(a);
     const res = await authed(`/social/friends/${b.userId}`, token, { method: "DELETE" });
+    expect(res.status).toBe(200);
+    const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM friendships").first<{ n: number }>();
+    expect(n!.n).toBe(0);
+  });
+
+  it("unfriend works when me is the user_high side of the pair", async () => {
+    // Creation order forces other < me, so the friendship row stores me as
+    // user_high — pins pairKey canonicalization in the DELETE route.
+    const other = await createTestAccount();
+    const me = await createTestAccount();
+    expect(other.userId < me.userId).toBe(true);
+    await befriend(me.userId, other.userId);
+    const token = await issueTestSession(me);
+    const res = await authed(`/social/friends/${other.userId}`, token, { method: "DELETE" });
     expect(res.status).toBe(200);
     const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM friendships").first<{ n: number }>();
     expect(n!.n).toBe(0);

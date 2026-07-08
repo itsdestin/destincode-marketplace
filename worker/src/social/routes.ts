@@ -147,3 +147,31 @@ socialRoutes.delete("/social/requests/:id", requireAuth, async (c) => {
   if (res.meta.changes === 0) throw notFound("no such request");
   return c.json({ ok: true });
 });
+
+socialRoutes.get("/social/friends", requireAuth, async (c) => {
+  const me = c.get("userId");
+  // Both directions of the canonical pair, joined to cards + last_seen_at
+  // (the ONLY persisted presence fact — spec §5). The CASE picks the OTHER
+  // side of the pair regardless of whether `me` is user_low or user_high.
+  const rows = await c.env.DB.prepare(
+    `SELECT u.id, u.display_name, u.handle, u.avatar_url, u.last_seen_at, f.created_at
+     FROM friendships f
+     JOIN users u ON u.id = CASE WHEN f.user_low = ?1 THEN f.user_high ELSE f.user_low END
+     WHERE f.user_low = ?1 OR f.user_high = ?1
+     ORDER BY u.display_name COLLATE NOCASE`
+  ).bind(me).all();
+  return c.json(rows.results ?? []);
+});
+
+socialRoutes.delete("/social/friends/:userId", requireAuth, async (c) => {
+  const me = c.get("userId");
+  const other = c.req.param("userId");
+  const [low, high] = pairKey(me, other);
+  const res = await c.env.DB
+    .prepare("DELETE FROM friendships WHERE user_low = ? AND user_high = ?")
+    .bind(low, high).run();
+  if (res.meta.changes === 0) throw notFound("not friends");
+  // Task 7 adds a presence poke here — unfriending changes presence visibility,
+  // so the ex-friend must be told to drop this user from their roster.
+  return c.json({ ok: true }); // silent — the ex-friend is never notified (spec §2)
+});

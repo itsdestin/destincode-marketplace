@@ -185,3 +185,52 @@ socialRoutes.delete("/social/friends/:userId", requireAuth, async (c) => {
   // so the ex-friend must be told to drop this user from their roster.
   return c.json({ ok: true }); // silent — the ex-friend is never notified (spec §2)
 });
+
+// Block-list row: user card + when the block was created. Owner-only shape
+// (see GET below) — a small typed interface mirrors FriendRow above.
+interface BlockRow extends UserCard {
+  created_at: number; // when I blocked them
+}
+
+socialRoutes.post("/social/blocks", requireAuth, async (c) => {
+  const me = c.get("userId");
+  const body = await parseJsonBody<{ user_id?: string }>(c);
+  const target = body.user_id;
+  if (!target) throw badRequest("user_id is required");
+  if (target === me) throw badRequest("you can't block yourself");
+  const exists = await c.env.DB.prepare("SELECT 1 AS one FROM users WHERE id = ?").bind(target).first();
+  if (!exists) throw notFound("no such user");
+  const now = Math.floor(Date.now() / 1000);
+  const [low, high] = pairKey(me, target);
+  // Block beats friend everywhere (spec §2): one atomic batch severs the
+  // friendship, clears pending requests both ways, and records the block.
+  await c.env.DB.batch([
+    c.env.DB.prepare("INSERT OR IGNORE INTO blocks (blocker, blocked, created_at) VALUES (?, ?, ?)").bind(me, target, now),
+    c.env.DB.prepare("DELETE FROM friendships WHERE user_low = ? AND user_high = ?").bind(low, high),
+    c.env.DB.prepare("DELETE FROM friend_requests WHERE (from_user = ? AND to_user = ?) OR (from_user = ? AND to_user = ?)")
+      .bind(me, target, target, me),
+  ]);
+  // Task 7 adds a presence poke here
+  return c.json({ ok: true });
+});
+
+socialRoutes.delete("/social/blocks/:userId", requireAuth, async (c) => {
+  const me = c.get("userId");
+  const res = await c.env.DB
+    .prepare("DELETE FROM blocks WHERE blocker = ? AND blocked = ?")
+    .bind(me, c.req.param("userId")).run();
+  if (res.meta.changes === 0) throw notFound("not blocked");
+  // No presence poke and nothing restored: an ex-block is stranger-state (no
+  // friendship exists), so there's no presence visibility to update.
+  return c.json({ ok: true });
+});
+
+socialRoutes.get("/social/blocks", requireAuth, async (c) => {
+  const me = c.get("userId");
+  const rows = await c.env.DB.prepare(
+    `SELECT u.id, u.display_name, u.handle, u.avatar_url, b.created_at
+     FROM blocks b JOIN users u ON u.id = b.blocked
+     WHERE b.blocker = ? ORDER BY b.created_at DESC`
+  ).bind(me).all<BlockRow>();
+  return c.json(rows.results ?? []); // visible only to its owner (spec §2)
+});

@@ -6,7 +6,7 @@ import type { HonoEnv } from "../types";
 import { requireAuth } from "../auth/middleware";
 import { notFound, tooMany } from "../lib/errors";
 import { checkRateLimit } from "../lib/rate-limit";
-import { isBlockedEitherWay } from "./graph";
+import { CARD_COLUMNS, isBlockedEitherWay } from "./graph";
 import type { UserCard } from "./graph";
 
 export const socialRoutes = new Hono<HonoEnv>();
@@ -18,9 +18,9 @@ socialRoutes.get("/social/users/:handle", requireAuth, async (c) => {
   if (!(await checkRateLimit(`social-lookup:${me}`, 30, 3600))) {
     throw tooMany("too many lookups");
   }
-  const handle = c.req.param("handle").toLowerCase();
+  const handle = c.req.param("handle").trim().toLowerCase();
   const card = await c.env.DB
-    .prepare("SELECT id, display_name, handle, avatar_url FROM users WHERE handle = ?")
+    .prepare(`SELECT ${CARD_COLUMNS} FROM users WHERE handle = ?`)
     .bind(handle).first<UserCard>();
   // A blocked pair looks exactly like a missing handle — no probing oracle.
   if (!card || (await isBlockedEitherWay(c.env.DB, me, card.id))) {

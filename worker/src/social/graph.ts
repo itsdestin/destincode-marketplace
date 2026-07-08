@@ -9,6 +9,11 @@ export interface UserCard {
   avatar_url: string | null;
 }
 
+// The "minimal card" column list — the ONLY user columns social code may
+// select. Shared so the shape can't drift between the by-id and by-handle
+// lookups (and the request/friend/block card queries in later routes).
+export const CARD_COLUMNS = "id, display_name, handle, avatar_url";
+
 /** Canonical (user_low, user_high) ordering for the friendships table. */
 export function pairKey(a: string, b: string): [string, string] {
   return a < b ? [a, b] : [b, a];
@@ -39,6 +44,6 @@ export async function loadFriendIds(db: D1Database, userId: string): Promise<str
 
 export async function getUserCard(db: D1Database, userId: string): Promise<UserCard | null> {
   return db
-    .prepare("SELECT id, display_name, handle, avatar_url FROM users WHERE id = ?")
+    .prepare(`SELECT ${CARD_COLUMNS} FROM users WHERE id = ?`)
     .bind(userId).first<UserCard>();
 }

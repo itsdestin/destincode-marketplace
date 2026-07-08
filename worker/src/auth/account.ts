@@ -2,11 +2,10 @@
 // lives here (it's account profile); handle DISCOVERY is Phase 2 social/.
 import { Hono } from "hono";
 import type { HonoEnv } from "../types";
-import { badRequest, notFound } from "../lib/errors";
+import { badRequest, conflict, notFound } from "../lib/errors";
 // Route body parsing through the shared helper so malformed JSON becomes a 400
 // (not an app.onError 500). See lib/parse-json.ts (knowledge-debt #1).
 import { parseJsonBody } from "../lib/parse-json";
-import { HTTPException } from "hono/http-exception";
 import { requireAuth } from "./middleware";
 import { HANDLE_COOLDOWN_SEC } from "../maintenance";
 
@@ -19,12 +18,6 @@ const RESERVED_HANDLES = new Set([
   // can't know who the "real" claimant is). "destin" stays reserved.
   "mod", "moderator", "official", "staff", "system", "root", "destin",
 ]);
-
-// No `conflict` helper exists in lib/errors.ts (only 400/401/403/404/429), so
-// define a local 409 for the two handle-collision paths (taken + cooldown).
-function conflict(message: string): HTTPException {
-  return new HTTPException(409, { message });
-}
 
 export const accountRoutes = new Hono<HonoEnv>();
 

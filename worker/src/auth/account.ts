@@ -11,7 +11,10 @@ import { HANDLE_COOLDOWN_SEC } from "../maintenance";
 const HANDLE_RE = /^[a-z0-9][a-z0-9-]{2,29}$/;
 const RESERVED_HANDLES = new Set([
   "youcoded", "wecoded", "admin", "administrator", "support", "help",
-  "mod", "moderator", "official", "staff", "system", "root", "destin", "itsdestin",
+  // "itsdestin" was removed 2026-07-08 so Destin can claim his own handle — the
+  // reserve-to-prevent-impersonation idea blocked the real owner too (the Worker
+  // can't know who the "real" claimant is). "destin" stays reserved.
+  "mod", "moderator", "official", "staff", "system", "root", "destin",
 ]);
 
 // No `conflict` helper exists in lib/errors.ts (only 400/401/403/404/429), so

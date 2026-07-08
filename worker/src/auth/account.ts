@@ -3,6 +3,9 @@
 import { Hono } from "hono";
 import type { HonoEnv } from "../types";
 import { badRequest, notFound } from "../lib/errors";
+// Route body parsing through the shared helper so malformed JSON becomes a 400
+// (not an app.onError 500). See lib/parse-json.ts (knowledge-debt #1).
+import { parseJsonBody } from "../lib/parse-json";
 import { HTTPException } from "hono/http-exception";
 import { requireAuth } from "./middleware";
 import { HANDLE_COOLDOWN_SEC } from "../maintenance";
@@ -26,7 +29,7 @@ function conflict(message: string): HTTPException {
 export const accountRoutes = new Hono<HonoEnv>();
 
 accountRoutes.patch("/auth/profile", requireAuth, async (c) => {
-  const body = await c.req.json<{ display_name?: string }>();
+  const body = await parseJsonBody<{ display_name?: string }>(c);
   const name = body.display_name?.trim();
   if (!name || name.length > 60) throw badRequest("display_name must be 1-60 characters");
   await c.env.DB.prepare("UPDATE users SET display_name = ? WHERE id = ?")
@@ -35,7 +38,7 @@ accountRoutes.patch("/auth/profile", requireAuth, async (c) => {
 });
 
 accountRoutes.put("/auth/handle", requireAuth, async (c) => {
-  const body = await c.req.json<{ handle?: string }>();
+  const body = await parseJsonBody<{ handle?: string }>(c);
   const handle = body.handle?.trim().toLowerCase();
   if (!handle || !HANDLE_RE.test(handle)) throw badRequest("handle must be 3-30 chars: a-z 0-9 -");
   if (RESERVED_HANDLES.has(handle)) throw badRequest("that handle is reserved");

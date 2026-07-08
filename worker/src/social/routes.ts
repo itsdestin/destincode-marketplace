@@ -58,6 +58,10 @@ socialRoutes.post("/social/requests", requireAuth, async (c) => {
     await c.env.DB.batch([
       c.env.DB.prepare("INSERT OR IGNORE INTO friendships (user_low, user_high, created_at) VALUES (?, ?, ?)").bind(low, high, now),
       c.env.DB.prepare("DELETE FROM friend_requests WHERE id = ?").bind(inverse.id),
+      // Also clear MY direction: after a concurrent mutual-send race both rows
+      // can exist, and deleting only the inverse would strand mine as a
+      // phantom pending request on an already-friends pair.
+      c.env.DB.prepare("DELETE FROM friend_requests WHERE from_user = ? AND to_user = ?").bind(me, target.id),
     ]);
     // Task 7 adds a presence poke here
     return c.json({ status: "friends" });
@@ -75,8 +79,11 @@ socialRoutes.post("/social/requests", requireAuth, async (c) => {
     .bind(me, now - 86400).first<{ n: number }>();
   if ((sentToday?.n ?? 0) >= DAILY_REQUEST_CAP) throw tooMany("daily friend-request limit reached");
 
+  // OR IGNORE: concurrent identical sends must be idempotent, not a 500 — the
+  // only realistic conflict is the UNIQUE(from_user, to_user) race (both FK
+  // parents were validated above), and "pending" is then the true answer.
   await c.env.DB
-    .prepare("INSERT INTO friend_requests (id, from_user, to_user, created_at) VALUES (?, ?, ?, ?)")
+    .prepare("INSERT OR IGNORE INTO friend_requests (id, from_user, to_user, created_at) VALUES (?, ?, ?, ?)")
     .bind("freq_" + randomToken(16), me, target.id, now).run();
   return c.json({ status: "pending" });
 });

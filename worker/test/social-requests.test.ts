@@ -55,6 +55,16 @@ describe("friend requests", () => {
     await authed("/social/requests", aTok, { method: "POST", body: JSON.stringify({ handle: await handleOf(b) }) });
     const res = await authed("/social/requests", bTok, { method: "POST", body: JSON.stringify({ handle: await handleOf(a) }) });
     expect(((await res.json()) as any).status).toBe("friends");
+    // Auto-accept must fully settle the pair: one friendship row, zero
+    // pending requests left in either direction.
+    const n = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM friendships WHERE (user_low = ? AND user_high = ?) OR (user_low = ? AND user_high = ?)"
+    ).bind(a.userId, b.userId, b.userId, a.userId).first<{ n: number }>();
+    expect(n!.n).toBe(1);
+    const left = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM friend_requests WHERE (from_user = ? AND to_user = ?) OR (from_user = ? AND to_user = ?)"
+    ).bind(a.userId, b.userId, b.userId, a.userId).first<{ n: number }>();
+    expect(left!.n).toBe(0);
   });
 
   it("decline (recipient) and cancel (sender) delete the row; wrong party gets 404", async () => {

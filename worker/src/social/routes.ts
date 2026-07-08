@@ -148,18 +148,28 @@ socialRoutes.delete("/social/requests/:id", requireAuth, async (c) => {
   return c.json({ ok: true });
 });
 
+// Friends-list row: user card + last_seen_at + friends-since. This shape is
+// the client contract (mergeFriends in the youcoded renderer) — keep exact.
+interface FriendRow extends UserCard {
+  last_seen_at: number | null;
+  created_at: number; // friends-since (the friendship row's timestamp, NOT account age)
+}
+
 socialRoutes.get("/social/friends", requireAuth, async (c) => {
   const me = c.get("userId");
   // Both directions of the canonical pair, joined to cards + last_seen_at
   // (the ONLY persisted presence fact — spec §5). The CASE picks the OTHER
   // side of the pair regardless of whether `me` is user_low or user_high.
+  // NOTE: ?1 is a NUMBERED placeholder — one bound value (me) reused 3x. The
+  // rest of this file uses positional ? — don't mix styles within one query,
+  // and don't copy this query and add a second bind without renumbering.
   const rows = await c.env.DB.prepare(
     `SELECT u.id, u.display_name, u.handle, u.avatar_url, u.last_seen_at, f.created_at
      FROM friendships f
      JOIN users u ON u.id = CASE WHEN f.user_low = ?1 THEN f.user_high ELSE f.user_low END
      WHERE f.user_low = ?1 OR f.user_high = ?1
      ORDER BY u.display_name COLLATE NOCASE`
-  ).bind(me).all();
+  ).bind(me).all<FriendRow>();
   return c.json(rows.results ?? []);
 });
 

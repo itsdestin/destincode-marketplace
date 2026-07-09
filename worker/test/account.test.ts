@@ -1,5 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { describe, it, expect } from "vitest";
+import { buildHandleClaimBatch } from "../src/auth/account";
 import { createTestAccount, issueTestSession } from "./helpers";
 
 async function authed(path: string, token: string, init?: RequestInit) {
@@ -85,9 +86,12 @@ describe("PUT /auth/handle", () => {
   });
 
   it("a handle inserted into cooldown between check and claim still cannot be taken (atomic claim)", async () => {
-    // Direct simulation: cooldown row exists at claim time (released by someone
-    // else — NULL releaser means nobody can early-reclaim) → conditional UPDATE
-    // writes nothing and the route 409s.
+    // NOTE: in this single-threaded route test the pre-existing cooldown row
+    // 409s at the FRIENDLY PRE-CHECK (identical condition) — the conditional
+    // UPDATE never runs here. The conditional-UPDATE race guard itself is
+    // pinned by the batch-level test below ("the claim batch mutates nothing
+    // …"). This test still pins the end-to-end route behavior: cooldown row
+    // present (NULL releaser — nobody can early-reclaim) → 409, handle unset.
     const me = await createTestAccount();
     const token = await issueTestSession(me);
     const now = Math.floor(Date.now() / 1000);
@@ -128,6 +132,38 @@ describe("PUT /auth/handle", () => {
     expect(originalCount!.n).toBe(0);
     const newnameRel = await env.DB.prepare("SELECT released_by FROM handle_releases WHERE handle = 'newname'").first<{ released_by: string }>();
     expect(newnameRel!.released_by).toBe(me.userId);
+  });
+
+  it("the claim batch mutates nothing when a cooldown row appears after the pre-check (no wrongful release)", async () => {
+    // Spec-review gap: the route's friendly pre-check uses the IDENTICAL
+    // cooldown condition as the batch guard, so in a single-threaded route test
+    // a blocking row 409s before the batch ever runs — the conditional-UPDATE
+    // guard was untestable through the route. This drives the exported batch
+    // builder directly, simulating the sniper WINNING the check→claim race:
+    // the cooldown row exists at batch time even though the pre-check saw none.
+    const me = await createTestAccount({ handle: "mine" });
+    const sniper = await createTestAccount();
+    const now = Math.floor(Date.now() / 1000);
+    // 'wanted' entered cooldown released_by someone ELSE after my pre-check.
+    await env.DB.prepare("INSERT INTO handle_releases (handle, released_at, released_by) VALUES ('wanted', ?, ?)")
+      .bind(now, sniper.userId).run();
+
+    const stmts = buildHandleClaimBatch(env.DB, { handle: "wanted", userId: me.userId, currentHandle: "mine", now });
+    const results = await env.DB.batch(stmts);
+
+    // (a) The conditional UPDATE wrote nothing — claim blocked.
+    expect(results[0]!.meta.changes).toBe(0);
+    // (b) No wrongful release: 'mine' was NOT cooled even though the claim failed.
+    const mineRel = await env.DB.prepare("SELECT 1 AS one FROM handle_releases WHERE handle = 'mine'").first();
+    expect(mineRel).toBeNull();
+    // (c) The 'wanted' cooldown row survives untouched (the consume-DELETE
+    // filters on released_by = me, so someone else's row is never eaten).
+    const wantedRel = await env.DB.prepare("SELECT released_at, released_by FROM handle_releases WHERE handle = 'wanted'")
+      .first<{ released_at: number; released_by: string }>();
+    expect(wantedRel).toEqual({ released_at: now, released_by: sniper.userId });
+    // (d) I still own my current handle.
+    const row = await env.DB.prepare("SELECT handle FROM users WHERE id = ?").bind(me.userId).first<{ handle: string }>();
+    expect(row!.handle).toBe("mine");
   });
 });
 

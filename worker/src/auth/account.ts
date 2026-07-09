@@ -49,38 +49,79 @@ accountRoutes.put("/auth/handle", requireAuth, async (c) => {
   if (current.handle === handle) return c.json({ handle }); // no-op rename
 
   // Cooldown check (anti-sniping, spec §2): a freed handle stays locked 30 days.
+  // Self-reclaim exception (Destin, 2026-07-08): the cooldown applies to OTHER
+  // users only — the previous owner (released_by = me) can take their old handle
+  // back immediately, so a rename never locks you out of your own name. The
+  // `released_by IS NULL` half keeps deleted-account releases (FK ON DELETE SET
+  // NULL → NULL) locked for everyone. This is only a friendly early 409; the
+  // atomic claim below is the real guard.
   const cooling = await c.env.DB
-    .prepare("SELECT 1 AS one FROM handle_releases WHERE handle = ? AND released_at >= ?")
-    .bind(handle, now - HANDLE_COOLDOWN_SEC).first();
+    .prepare("SELECT 1 AS one FROM handle_releases WHERE handle = ? AND released_at >= ? AND (released_by IS NULL OR released_by != ?)")
+    .bind(handle, now - HANDLE_COOLDOWN_SEC, userId).first();
   if (cooling) throw conflict("that handle was recently released and is in cooldown");
 
-  // Atomicity fix (Task 4 quality review): the rename UPDATE and the
-  // handle_releases INSERT must land together. Two separate statements meant a
-  // crash between them would leave the old handle un-cooled (sniping window).
-  // D1 `batch()` runs the array as one implicit transaction and is the SOLE
-  // rename path. The UNIQUE→409 path is preserved: batch() rejects with the
-  // failing statement's error, so a collision still throws an Error whose
-  // message contains "UNIQUE" (verified empirically — the taken-handle test
-  // 409s through this catch). Conditional shape: when there's an old handle to
-  // release we batch both statements; otherwise just the rename.
+  // Atomic claim (knowledge-debt #2): the friendly pre-check and the claim have
+  // a check→claim gap a sniper could exploit by inserting a cooldown row in
+  // between. So the claim UPDATE itself is conditional — its `NOT EXISTS` re-runs
+  // the same cooldown-by-others test at write time, and if a row appeared it
+  // writes nothing (changes === 0 → 409 below). D1 `batch()` runs the array as
+  // one implicit transaction and is the SOLE rename path. The UNIQUE→409 "taken"
+  // path is preserved: an actively-owned handle has no cooldown row, so NOT
+  // EXISTS passes, the UPDATE attempts the write, and the users.handle UNIQUE
+  // index rejects it → batch throws → caught below.
+  //
+  // NUMBERED placeholders (?1/?2/?3): each is bound ONCE in order, even though
+  // ?1/?2 are referenced multiple times — same convention as social/routes.ts.
+  // Don't mix positional ? into these two statements or add binds without
+  // renumbering. WHY the release-insert is ALSO conditional: an unconditional
+  // release would fire even when the conditional UPDATE fails (the race case),
+  // wrongly cooling the user's CURRENT handle while they keep it. Gating it on
+  // the SAME NOT EXISTS means nothing mutates when the claim fails.
+  const notExistsCooldown =
+    "NOT EXISTS (SELECT 1 FROM handle_releases WHERE handle = ?1 AND released_at >= ?3 AND (released_by IS NULL OR released_by != ?2))";
   const stmts = [
-    c.env.DB.prepare("UPDATE users SET handle = ? WHERE id = ?").bind(handle, userId),
+    c.env.DB
+      .prepare(`UPDATE users SET handle = ?1 WHERE id = ?2 AND ${notExistsCooldown}`)
+      .bind(handle, userId, now - HANDLE_COOLDOWN_SEC),
   ];
   if (current.handle) {
+    // Stamp released_by = me so a future self-reclaim is allowed. Gated on the
+    // same cooldown test as the UPDATE so a losing race doesn't release it.
     stmts.push(
       c.env.DB
-        .prepare("INSERT OR REPLACE INTO handle_releases (handle, released_at) VALUES (?, ?)")
-        .bind(current.handle, now),
+        .prepare(
+          `INSERT OR REPLACE INTO handle_releases (handle, released_at, released_by)
+           SELECT ?4, ?5, ?2 WHERE ${notExistsCooldown}`,
+        )
+        .bind(handle, userId, now - HANDLE_COOLDOWN_SEC, current.handle, now),
     );
   }
+  // Consume this user's OWN release row for the handle being claimed. On a
+  // self-reclaim the previous owner's `released_by = me` row must be deleted, or
+  // a later rename would leave a stale row with the OLD released_at. The
+  // `released_by = me` filter makes this safe on a FAILED claim by a DIFFERENT
+  // user: the surviving cooldown row is released_by someone-else/NULL, so this
+  // matches nothing and the cooldown stays intact.
+  stmts.push(
+    c.env.DB
+      .prepare("DELETE FROM handle_releases WHERE handle = ? AND released_by = ?")
+      .bind(handle, userId),
+  );
+  let results;
   try {
-    await c.env.DB.batch(stmts);
+    results = await c.env.DB.batch(stmts);
   } catch (e) {
     // Unique index violation → taken. D1 surfaces it as a generic error;
     // match on message to keep other failures loud.
     const msg = e instanceof Error ? e.message : String(e);
     if (/UNIQUE/i.test(msg)) throw conflict("that handle is taken");
     throw e;
+  }
+  // The conditional UPDATE is stmts[0]. changes === 0 means the NOT EXISTS guard
+  // blocked the claim (a cooldown row for this handle, released by someone else,
+  // was present at write time) — 409 the same as the friendly pre-check.
+  if ((results[0]?.meta.changes ?? 0) === 0) {
+    throw conflict("that handle was recently released and is in cooldown");
   }
   return c.json({ handle });
 });

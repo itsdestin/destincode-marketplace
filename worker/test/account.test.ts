@@ -83,6 +83,52 @@ describe("PUT /auth/handle", () => {
     const res = await authed("/auth/handle", tokenB, { method: "PUT", body: JSON.stringify({ handle: "first" }) });
     expect(res.status).toBe(409); // cooldown
   });
+
+  it("a handle inserted into cooldown between check and claim still cannot be taken (atomic claim)", async () => {
+    // Direct simulation: cooldown row exists at claim time (released by someone
+    // else — NULL releaser means nobody can early-reclaim) → conditional UPDATE
+    // writes nothing and the route 409s.
+    const me = await createTestAccount();
+    const token = await issueTestSession(me);
+    const now = Math.floor(Date.now() / 1000);
+    await env.DB.prepare("INSERT INTO handle_releases (handle, released_at) VALUES ('sniped', ?)").bind(now).run();
+    const res = await SELF.fetch("https://test.local/auth/handle", {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ handle: "sniped" }),
+    });
+    expect(res.status).toBe(409);
+    const row = await env.DB.prepare("SELECT handle FROM users WHERE id = ?").bind(me.userId).first<{ handle: string | null }>();
+    expect(row!.handle).toBeNull();
+  });
+
+  it("the previous owner CAN re-claim their own handle during cooldown; others still cannot", async () => {
+    const me = await createTestAccount({ handle: "original" });
+    const other = await createTestAccount();
+    const meTok = await issueTestSession(me);
+    const otherTok = await issueTestSession(other);
+    const put = (token: string, handle: string) => SELF.fetch("https://test.local/auth/handle", {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ handle }),
+    });
+    // Rename away → 'original' enters cooldown with released_by = me
+    expect((await put(meTok, "newname")).status).toBe(200);
+    const rel = await env.DB.prepare("SELECT released_by FROM handle_releases WHERE handle = 'original'").first<{ released_by: string }>();
+    expect(rel!.released_by).toBe(me.userId);
+    // Someone else can't snipe it during cooldown
+    expect((await put(otherTok, "original")).status).toBe(409);
+    // But the previous owner can take it back immediately
+    expect((await put(meTok, "original")).status).toBe(200);
+    const row = await env.DB.prepare("SELECT handle FROM users WHERE id = ?").bind(me.userId).first<{ handle: string }>();
+    expect(row!.handle).toBe("original");
+    // The consumed 'original' release row is gone; the reclaim-rename released
+    // 'newname' with released_by = me.
+    const originalCount = await env.DB.prepare("SELECT COUNT(*) AS n FROM handle_releases WHERE handle = 'original'").first<{ n: number }>();
+    expect(originalCount!.n).toBe(0);
+    const newnameRel = await env.DB.prepare("SELECT released_by FROM handle_releases WHERE handle = 'newname'").first<{ released_by: string }>();
+    expect(newnameRel!.released_by).toBe(me.userId);
+  });
 });
 
 describe("DELETE /auth/account", () => {

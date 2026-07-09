@@ -7,9 +7,10 @@ export const HANDLE_COOLDOWN_SEC = 30 * 24 * 3600; // spec §2: 30-day handle co
 export const FRIEND_REQUEST_MAX_AGE_SEC = 90 * 24 * 3600; // spec §5 cron hygiene
 
 export async function pruneExpired(db: D1Database, now: number): Promise<void> {
-  // One batch (implicit transaction): a partial failure can't strand later
-  // deletes until tomorrow's run — previously three sequential .run()s meant a
-  // throw on statement N skipped N+1..end for a full day (knowledge-debt #3).
+  // One batch (implicit transaction): all-or-nothing — no run can leave some
+  // tables pruned and others not; a failed run rolls back entirely and retries
+  // tomorrow. Previously three sequential .run()s meant a throw on statement N
+  // left tables N+1..end unpruned while 1..N-1 had committed (knowledge-debt #3).
   // Strict `<` on sessions is INTENTIONALLY identical to resolveSession's expiry
   // check (sessions.ts): both compare last_used_at against `now -
   // SESSION_MAX_IDLE_SEC` strictly, so the cron never deletes a row

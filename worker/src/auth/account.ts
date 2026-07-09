@@ -38,7 +38,10 @@ export const accountRoutes = new Hono<HonoEnv>();
 //       would fire even when the claim UPDATE fails (the race case), wrongly
 //       cooling the user's CURRENT handle while they keep it. Gating on the
 //       SAME NOT EXISTS means nothing mutates when the claim fails.
-//   [2] consume this user's OWN release row for the claimed handle. On a
+//   [last] (index 2 with a current handle, index 1 without — [1] is skipped on
+//       a first-ever claim; the route only ever reads results[0], so the shift
+//       is harmless) consume this user's OWN release row for the claimed
+//       handle. On a
 //       self-reclaim the previous owner's `released_by = me` row must go, or a
 //       later rename would leave a stale row with the OLD released_at. The
 //       `released_by = me` filter makes it safe on a FAILED claim by a

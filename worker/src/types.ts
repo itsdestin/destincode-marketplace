@@ -1,6 +1,9 @@
 export interface Env {
   DB: D1Database;
   AI: Ai;
+  // Single global PresenceRoom Durable Object (friends-only presence fan-out,
+  // challenge relay, last_seen_at writes — spec §3). Bound in wrangler.toml.
+  PRESENCE: DurableObjectNamespace;
   // Optional: omitted in [env.test] (vitest-pool-workers can't resolve AE binding).
   // All callers must use env.APP_ANALYTICS?.writeDataPoint() to stay test-safe.
   APP_ANALYTICS?: AnalyticsEngineDataset;

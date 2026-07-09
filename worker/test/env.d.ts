@@ -8,6 +8,7 @@ declare module "cloudflare:test" {
     ADMIN_USER_IDS: string;
     CUTOVER_TIMESTAMP: string;
     KNOWN_DEV_DEVICES?: string;
+    PRESENCE: DurableObjectNamespace;
   }
 }
 export {};

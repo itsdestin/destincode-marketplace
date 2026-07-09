@@ -19,6 +19,15 @@ binding = "AI"
 binding = "APP_ANALYTICS"
 dataset = "youcoded_app_events"
 
+[durable_objects]
+bindings = [{ name = "PRESENCE", class_name = "PresenceRoom" }]
+
+# DO class registration — required once per new class. SQLite-backed
+# (new_sqlite_classes) works on both free and paid plans.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["PresenceRoom"]
+
 [vars]
 # Set to the deploy timestamp of the device-id-keyed client (version N) once
 # version N is the dominant client. Until then, leave empty — analytics
@@ -33,6 +42,11 @@ binding = "DB"
 database_name = "marketplace"
 database_id = "e31c0476-df4e-45aa-960e-24410879aca8"
 migrations_dir = "migrations"
+
+# Env config is NOT inherited — the PRESENCE DO binding must be mirrored here
+# so vitest-pool-workers/miniflare resolves it under the test environment.
+[env.test.durable_objects]
+bindings = [{ name = "PRESENCE", class_name = "PresenceRoom" }]
 
 [env.test.vars]
 GH_CLIENT_ID = "test"

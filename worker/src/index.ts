@@ -10,6 +10,7 @@ import { themeRoutes } from "./themes/routes";
 import { statsRoutes } from "./stats/routes";
 import { reportRoutes } from "./reports/routes";
 import { appRoutes } from "./app/routes";
+import { socialRoutes } from "./social/routes";
 import { adminAnalyticsRoutes } from "./admin/analytics";
 import { adminDashboardRoute } from "./admin/dashboard-route";
 import { pruneExpired } from "./maintenance";
@@ -100,6 +101,7 @@ app.route("/", themeRoutes);
 app.route("/", statsRoutes);
 app.route("/", reportRoutes);
 app.route("/", appRoutes);
+app.route("/", socialRoutes);
 app.route("/", adminAnalyticsRoutes);
 app.route("/", adminDashboardRoute);
 
@@ -118,3 +120,6 @@ export default {
 // `{ fetch, scheduled }` module object.
 export { app };
 export type { Env };
+// Durable Object class must be exported from the worker entrypoint so the
+// runtime can instantiate it for the PRESENCE binding (spec §3).
+export { PresenceRoom } from "./social/presence-room";

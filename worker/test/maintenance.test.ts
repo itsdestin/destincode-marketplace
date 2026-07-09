@@ -29,4 +29,17 @@ describe("pruneExpired", () => {
     const codes = await env.DB.prepare("SELECT count(*) AS n FROM device_codes WHERE device_code = 'dead'").first<{ n: number }>();
     expect(codes!.n).toBe(0);
   });
+
+  it("prunes friend requests older than 90 days", async () => {
+    const a = await createTestAccount();
+    const b = await createTestAccount();
+    const now = Math.floor(Date.now() / 1000);
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO friend_requests (id, from_user, to_user, created_at) VALUES ('freq_old', ?, ?, ?)").bind(a.userId, b.userId, now - 91 * 24 * 3600),
+      env.DB.prepare("INSERT INTO friend_requests (id, from_user, to_user, created_at) VALUES ('freq_new', ?, ?, ?)").bind(b.userId, a.userId, now - 1000),
+    ]);
+    await pruneExpired(env.DB, now);
+    const rows = await env.DB.prepare("SELECT id FROM friend_requests").all<{ id: string }>();
+    expect((rows.results ?? []).map((r) => r.id)).toEqual(["freq_new"]);
+  });
 });

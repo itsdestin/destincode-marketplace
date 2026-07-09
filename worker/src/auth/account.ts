@@ -127,15 +127,16 @@ accountRoutes.get("/auth/export", requireAuth, async (c) => {
     db.prepare("SELECT provider, provider_user_id, provider_login, linked_at FROM identities WHERE user_id = ?").bind(userId).all(),
     // Timestamps only — never token_hash. See exclusion note above.
     db.prepare("SELECT created_at, last_used_at FROM sessions WHERE user_id = ?").bind(userId).all(),
-    db.prepare("SELECT * FROM installs WHERE user_id = ?").bind(userId).all(),
-    db.prepare("SELECT * FROM ratings WHERE user_id = ?").bind(userId).all(),
-    db.prepare("SELECT * FROM theme_likes WHERE user_id = ?").bind(userId).all(),
-    // reports SELECT * columns (migration 0003): id, rating_user_id,
-    // rating_plugin_id, reporter_user_id, reason, created_at, resolved_at,
-    // resolution. rating_user_id identifies the review the owner CHOSE to report
-    // (owner-visible); nothing here reveals block direction or another user's
-    // private data, so SELECT * is safe.
-    db.prepare("SELECT * FROM reports WHERE reporter_user_id = ?").bind(userId).all(),
+    // Every export query pins its column list — never SELECT * here. A future
+    // migration adding a column to these tables must OPT IN to the export by
+    // editing this endpoint, not leak silently through a wildcard.
+    db.prepare("SELECT user_id, plugin_id, installed_at FROM installs WHERE user_id = ?").bind(userId).all(),
+    db.prepare("SELECT user_id, plugin_id, stars, review_text, created_at, updated_at, hidden FROM ratings WHERE user_id = ?").bind(userId).all(),
+    db.prepare("SELECT user_id, theme_id, liked_at FROM theme_likes WHERE user_id = ?").bind(userId).all(),
+    // rating_user_id identifies the review the owner CHOSE to report — the one
+    // deliberate non-owner id in the export (an opaque account id the owner
+    // already acted on; reveals nothing about blocks or private state).
+    db.prepare("SELECT id, rating_user_id, rating_plugin_id, reporter_user_id, reason, created_at, resolved_at, resolution FROM reports WHERE reporter_user_id = ?").bind(userId).all(),
     db.prepare("SELECT user_low, user_high, created_at FROM friendships WHERE user_low = ? OR user_high = ?").bind(userId, userId).all(),
     db.prepare("SELECT id, from_user, created_at FROM friend_requests WHERE to_user = ?").bind(userId).all(),
     db.prepare("SELECT id, to_user, created_at FROM friend_requests WHERE from_user = ?").bind(userId).all(),

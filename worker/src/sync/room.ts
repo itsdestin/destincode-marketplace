@@ -94,9 +94,15 @@ export class SyncGroupRoom {
     if (!ALLOWED_KINDS.has(data.kind)) return;
     if (typeof data.spaceKey !== "string" || data.spaceKey.length === 0 || data.spaceKey.length > 200) return;
 
-    // device is trusted here — it came from the authenticated route's header,
-    // not the client's message body (attachment is set in fetch()).
-    const att = sender.deserializeAttachment() as Attachment;
+    // device is a human-readable LABEL, not authenticated identity — it comes
+    // from the client-chosen ?device= query param at connect time. What IS
+    // guaranteed: it's connection-pinned (read from the socket attachment set
+    // in fetch(), not from the message body), so a client can't respoof it
+    // per-message. Phase 2 lease logic must NOT key on it as verified/unique.
+    // Null-guard matches presence-room.ts: webSocketMessage has no try/catch,
+    // so a missing attachment would otherwise throw on an ungated path.
+    const att = sender.deserializeAttachment() as Attachment | null;
+    if (!att) return;
     const entry: RingEntry = {
       kind: data.kind,
       spaceKey: data.spaceKey,
@@ -107,6 +113,10 @@ export class SyncGroupRoom {
     // Append to the replay ring and cap at RING_MAX. Stored in DO storage so it
     // survives hibernation — a device reconnecting after eviction still catches
     // up on recent signals via the hello frame.
+    // Safe under concurrent signals: Durable Object "input gates" defer new
+    // events while a storage op is in flight, and this get→push→put has no
+    // other await between the read and the write — so no two relaySignal calls
+    // can interleave and clobber each other's ring append.
     const ring = (await this.state.storage.get<RingEntry[]>("ring")) ?? [];
     ring.push(entry);
     await this.state.storage.put("ring", ring.slice(-RING_MAX));

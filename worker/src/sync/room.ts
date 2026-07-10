@@ -89,6 +89,34 @@ export class SyncGroupRoom {
   }
 
   private async relaySignal(sender: WebSocket, data: any): Promise<void> {
-    // Implemented in Task 2.
+    // Validate hard: this is the only client-writable path into the room, so
+    // an unknown kind or a junk spaceKey must be dropped, never relayed/stored.
+    if (!ALLOWED_KINDS.has(data.kind)) return;
+    if (typeof data.spaceKey !== "string" || data.spaceKey.length === 0 || data.spaceKey.length > 200) return;
+
+    // device is trusted here — it came from the authenticated route's header,
+    // not the client's message body (attachment is set in fetch()).
+    const att = sender.deserializeAttachment() as Attachment;
+    const entry: RingEntry = {
+      kind: data.kind,
+      spaceKey: data.spaceKey,
+      device: att.device,
+      at: Date.now(),
+    };
+
+    // Append to the replay ring and cap at RING_MAX. Stored in DO storage so it
+    // survives hibernation — a device reconnecting after eviction still catches
+    // up on recent signals via the hello frame.
+    const ring = (await this.state.storage.get<RingEntry[]>("ring")) ?? [];
+    ring.push(entry);
+    await this.state.storage.put("ring", ring.slice(-RING_MAX));
+
+    // Relay to every OTHER socket in this account's room. safeSend so one
+    // closing peer can't strand the loop (same guard as PresenceRoom.safeSend).
+    const frame = JSON.stringify({ type: "signal", ...entry });
+    for (const sock of this.state.getWebSockets()) {
+      if (sock === sender) continue;
+      this.safeSend(sock, frame);
+    }
   }
 }

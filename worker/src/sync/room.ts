@@ -36,7 +36,9 @@ export class SyncGroupRoom {
     // this DO is never reachable without requireAuth having resolved the user.
     const userId = request.headers.get("X-Sync-User");
     const device = request.headers.get("X-Sync-Device") ?? "unknown";
-    if (!userId || request.headers.get("Upgrade") !== "websocket") {
+    // Case-insensitive Upgrade check — the header value is spec-legal in any
+    // case ("WebSocket"), and both the route and PresenceRoom lowercase it.
+    if (!userId || request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
       return new Response("expected websocket", { status: 400 });
     }
 
@@ -50,7 +52,7 @@ export class SyncGroupRoom {
     // hello carries the ring so a reconnecting device catches up on any signal
     // it missed while briefly disconnected. Empty on a fresh room.
     const ring = (await this.state.storage.get<RingEntry[]>("ring")) ?? [];
-    server.send(JSON.stringify({ type: "hello", replay: ring }));
+    this.safeSend(server, JSON.stringify({ type: "hello", replay: ring }));
 
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -61,7 +63,7 @@ export class SyncGroupRoom {
     try { data = JSON.parse(message); } catch { return; }
 
     if (data.type === "ping") {
-      ws.send(JSON.stringify({ type: "pong" }));
+      this.safeSend(ws, JSON.stringify({ type: "pong" }));
       return;
     }
     if (data.type === "signal") {
@@ -76,6 +78,14 @@ export class SyncGroupRoom {
 
   async webSocketError(ws: WebSocket): Promise<void> {
     await this.webSocketClose(ws);
+  }
+
+  /** send() can throw if the peer is mid-close; one bad socket must never
+   *  strand the rest of a loop (same pitfall as PresenceRoom.safeSend and the
+   *  transcript-watcher's readNewLines). Task 2's relay loop must route every
+   *  send through this. */
+  private safeSend(sock: WebSocket, msg: string): void {
+    try { sock.send(msg); } catch { /* peer closing */ }
   }
 
   private async relaySignal(sender: WebSocket, data: any): Promise<void> {

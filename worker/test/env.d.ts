@@ -9,6 +9,7 @@ declare module "cloudflare:test" {
     CUTOVER_TIMESTAMP: string;
     KNOWN_DEV_DEVICES?: string;
     PRESENCE: DurableObjectNamespace;
+    SYNC_HUB: DurableObjectNamespace;
   }
 }
 export {};

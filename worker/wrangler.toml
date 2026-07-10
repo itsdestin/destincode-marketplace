@@ -20,13 +20,21 @@ binding = "APP_ANALYTICS"
 dataset = "youcoded_app_events"
 
 [durable_objects]
-bindings = [{ name = "PRESENCE", class_name = "PresenceRoom" }]
+bindings = [
+  { name = "PRESENCE", class_name = "PresenceRoom" },
+  { name = "SYNC_HUB", class_name = "SyncGroupRoom" },
+]
 
 # DO class registration — required once per new class. SQLite-backed
 # (new_sqlite_classes) works on both free and paid plans.
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["PresenceRoom"]
+
+# SyncHub per-account signal-relay DO (SyncHub §6).
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["SyncGroupRoom"]
 
 [vars]
 # Set to the deploy timestamp of the device-id-keyed client (version N) once
@@ -43,10 +51,14 @@ database_name = "marketplace"
 database_id = "e31c0476-df4e-45aa-960e-24410879aca8"
 migrations_dir = "migrations"
 
-# Env config is NOT inherited — the PRESENCE DO binding must be mirrored here
-# so vitest-pool-workers/miniflare resolves it under the test environment.
+# Env config is NOT inherited — the PRESENCE and SYNC_HUB DO bindings must be
+# mirrored here so vitest-pool-workers/miniflare resolves them under the test
+# environment. ([[migrations]] is NOT repeated — it's a top-level concept.)
 [env.test.durable_objects]
-bindings = [{ name = "PRESENCE", class_name = "PresenceRoom" }]
+bindings = [
+  { name = "PRESENCE", class_name = "PresenceRoom" },
+  { name = "SYNC_HUB", class_name = "SyncGroupRoom" },
+]
 
 [env.test.vars]
 GH_CLIENT_ID = "test"

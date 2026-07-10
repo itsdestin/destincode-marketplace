@@ -11,6 +11,7 @@ import { statsRoutes } from "./stats/routes";
 import { reportRoutes } from "./reports/routes";
 import { appRoutes } from "./app/routes";
 import { socialRoutes } from "./social/routes";
+import { syncRoutes } from "./sync/routes";
 import { adminAnalyticsRoutes } from "./admin/analytics";
 import { adminDashboardRoute } from "./admin/dashboard-route";
 import { pruneExpired } from "./maintenance";
@@ -102,6 +103,7 @@ app.route("/", statsRoutes);
 app.route("/", reportRoutes);
 app.route("/", appRoutes);
 app.route("/", socialRoutes);
+app.route("/", syncRoutes);
 app.route("/", adminAnalyticsRoutes);
 app.route("/", adminDashboardRoute);
 
@@ -123,3 +125,6 @@ export type { Env };
 // Durable Object class must be exported from the worker entrypoint so the
 // runtime can instantiate it for the PRESENCE binding (spec §3).
 export { PresenceRoom } from "./social/presence-room";
+// SyncGroupRoom must also be exported from the entrypoint so the runtime can
+// instantiate it for the SYNC_HUB binding (SyncHub §6).
+export { SyncGroupRoom } from "./sync/room";

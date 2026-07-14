@@ -2,7 +2,7 @@
 // SELF.fetch websocket-upgrade helpers. This task covers connect, auth, hello
 // (empty replay) and ping/pong only — the signal relay is Task 2.
 import { SELF } from "cloudflare:test";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { createTestAccount, issueTestSession } from "./helpers";
 
 async function connect(token: string, device: string): Promise<WebSocket> {
@@ -132,5 +132,222 @@ describe("sync hub — relay & replay", () => {
     expect(hello.replay.length).toBe(1);
     expect(hello.replay[0].spaceKey).toBe("repo-1");
     a.close(); late.close();
+  });
+});
+
+// Plan 2b Task 1: session leases. Leases are a DO-authoritative request/response
+// message type ({type:"lease", op}), NOT client-relayed signals — so they never
+// touch ALLOWED_KINDS or the replay ring. Each op returns a {type:"lease-result",
+// reqId, ok, holder} frame; release/takeover/force-acquire also fan out a
+// {type:"lease-event"} to the OTHER sockets.
+let reqSeq = 0;
+/** Send a lease op and resolve with the matching lease-result (by reqId, so
+ *  interleaved ops on one socket can't cross-resolve). */
+function leaseOp(
+  ws: WebSocket,
+  op: string,
+  sessionId: string,
+  deviceId: string,
+  timeoutMs = 2000,
+): Promise<any> {
+  const reqId = `req-${++reqSeq}`;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`timeout waiting for lease-result ${op}`)), timeoutMs);
+    const handler = (ev: MessageEvent) => {
+      const data = JSON.parse(ev.data as string);
+      if (data.type === "lease-result" && data.reqId === reqId) {
+        clearTimeout(timer); ws.removeEventListener("message", handler); resolve(data);
+      }
+    };
+    ws.addEventListener("message", handler);
+    ws.send(JSON.stringify({ type: "lease", op, sessionId, deviceId, reqId }));
+  });
+}
+
+describe("sync hub — leases", () => {
+  it("acquire on a free session returns ok:true with holder=self", async () => {
+    const acct = await createTestAccount();
+    const token = await issueTestSession(acct);
+    const a = await connect(token, "Desktop-A");
+    await nextMessage(a, "hello");
+    const res = await leaseOp(a, "acquire", "s1", "dev-a");
+    expect(res.ok).toBe(true);
+    expect(res.holder.deviceId).toBe("dev-a");
+    expect(res.holder.device).toBe("Desktop-A"); // the connection-pinned label
+    expect(res.holder.expiresAt).toBeGreaterThan(Date.now());
+    a.close();
+  });
+
+  it("acquire on a held session (other deviceId) returns ok:false with the holder", async () => {
+    const acct = await createTestAccount();
+    const token = await issueTestSession(acct);
+    const a = await connect(token, "Desktop-A");
+    await nextMessage(a, "hello");
+    const b = await connect(token, "Desktop-B");
+    await nextMessage(b, "hello");
+
+    const held = await leaseOp(a, "acquire", "s1", "dev-a");
+    expect(held.ok).toBe(true);
+
+    const denied = await leaseOp(b, "acquire", "s1", "dev-b");
+    expect(denied.ok).toBe(false);
+    expect(denied.holder.deviceId).toBe("dev-a"); // reports the current holder
+    a.close(); b.close();
+  });
+
+  it("re-acquire by the same deviceId succeeds (idempotent) and extends expiry", async () => {
+    const acct = await createTestAccount();
+    const token = await issueTestSession(acct);
+    const a = await connect(token, "Desktop-A");
+    await nextMessage(a, "hello");
+
+    const first = await leaseOp(a, "acquire", "s1", "dev-a");
+    expect(first.ok).toBe(true);
+    const second = await leaseOp(a, "acquire", "s1", "dev-a");
+    expect(second.ok).toBe(true);
+    expect(second.holder.deviceId).toBe("dev-a");
+    // Expiry is recomputed each acquire (server clock advances across the I/O
+    // between ops, so the second is at least as late as the first).
+    expect(second.holder.expiresAt).toBeGreaterThanOrEqual(first.holder.expiresAt);
+    a.close();
+  });
+
+  it("renew by holder extends expiresAt; renew by non-holder returns ok:false", async () => {
+    const acct = await createTestAccount();
+    const token = await issueTestSession(acct);
+    const a = await connect(token, "Desktop-A");
+    await nextMessage(a, "hello");
+    const b = await connect(token, "Desktop-B");
+    await nextMessage(b, "hello");
+
+    const acq = await leaseOp(a, "acquire", "s1", "dev-a");
+    expect(acq.ok).toBe(true);
+
+    const renewed = await leaseOp(a, "renew", "s1", "dev-a");
+    expect(renewed.ok).toBe(true);
+    expect(renewed.holder.deviceId).toBe("dev-a");
+    expect(renewed.holder.expiresAt).toBeGreaterThanOrEqual(acq.holder.expiresAt);
+
+    const stranger = await leaseOp(b, "renew", "s1", "dev-b");
+    expect(stranger.ok).toBe(false);
+    expect(stranger.holder.deviceId).toBe("dev-a"); // still held by dev-a
+    a.close(); b.close();
+  });
+
+  it("release by holder frees it; release when free returns ok:true (idempotent)", async () => {
+    const acct = await createTestAccount();
+    const token = await issueTestSession(acct);
+    const a = await connect(token, "Desktop-A");
+    await nextMessage(a, "hello");
+
+    const acq = await leaseOp(a, "acquire", "s1", "dev-a");
+    expect(acq.ok).toBe(true);
+
+    const rel = await leaseOp(a, "release", "s1", "dev-a");
+    expect(rel.ok).toBe(true);
+    expect(rel.holder).toBeNull();
+
+    // Releasing an already-free lease is a success no-op.
+    const relAgain = await leaseOp(a, "release", "s1", "dev-a");
+    expect(relAgain.ok).toBe(true);
+    expect(relAgain.holder).toBeNull();
+
+    // The session is genuinely free now — a different device can acquire it.
+    const reacq = await leaseOp(a, "acquire", "s1", "dev-b");
+    expect(reacq.ok).toBe(true);
+    expect(reacq.holder.deviceId).toBe("dev-b");
+    a.close();
+  });
+
+  // Lazy expiry: the DO stamps expiresAt = server-now + 300s at acquire time and
+  // treats any lease with expiresAt <= now as free on the NEXT read (no alarms).
+  //
+  // Time-driving in @cloudflare/vitest-pool-workers: verified empirically that
+  // vi.setSystemTime with { toFake: ["Date"] } DOES propagate into the DO's
+  // Date.now() (the test module and the DO share the same workerd isolate's Date)
+  // while leaving the real setTimeout used by leaseOp/nextMessage working. So we
+  // drive the DO's clock directly: under-TTL keeps the lease held, over-TTL reads
+  // it as free — exercising the `rec.expiresAt <= now` branch for real.
+  it("expiry is lazy: a lease older than 300s reads as free", async () => {
+    const acct = await createTestAccount();
+    const token = await issueTestSession(acct);
+    const a = await connect(token, "Desktop-A");
+    await nextMessage(a, "hello");
+    const b = await connect(token, "Desktop-B");
+    await nextMessage(b, "hello");
+
+    const base = Date.now();
+    const acq = await leaseOp(a, "acquire", "s-exp", "dev-a");
+    expect(acq.ok).toBe(true); // stamped expiresAt ≈ base + 300000
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      // 290s later — still inside the TTL, so dev-a still holds it.
+      vi.setSystemTime(base + 290_000);
+      const stillHeld = await leaseOp(b, "acquire", "s-exp", "dev-b");
+      expect(stillHeld.ok).toBe(false);
+      expect(stillHeld.holder.deviceId).toBe("dev-a");
+
+      // 310s later — past the 300s TTL, so the lease lazily reads as free and a
+      // different device can take it.
+      vi.setSystemTime(base + 310_000);
+      const nowFree = await leaseOp(b, "acquire", "s-exp", "dev-b");
+      expect(nowFree.ok).toBe(true);
+      expect(nowFree.holder.deviceId).toBe("dev-b");
+    } finally {
+      vi.useRealTimers();
+    }
+    a.close(); b.close();
+  });
+
+  it("release broadcasts a lease-event {kind:'released'} to OTHER sockets, not the sender, and it does NOT enter the replay ring", async () => {
+    const acct = await createTestAccount();
+    const token = await issueTestSession(acct);
+    const a = await connect(token, "Desktop-A");
+    await nextMessage(a, "hello");
+    const b = await connect(token, "Desktop-B");
+    await nextMessage(b, "hello");
+
+    await leaseOp(a, "acquire", "s1", "dev-a");
+    // Kick off the release and await its lease-event on the OTHER socket.
+    const evP = nextMessage(b, "lease-event");
+    const rel = await leaseOp(a, "release", "s1", "dev-a");
+    expect(rel.ok).toBe(true);
+    const ev = await evP;
+    expect(ev.kind).toBe("released");
+    expect(ev.sessionId).toBe("s1");
+    expect(ev.device).toBe("Desktop-A");
+    // Sender must NOT receive its own lease-event.
+    await expect(nextMessage(a, "lease-event", 400)).rejects.toThrow();
+
+    // A reconnecting device's hello replay must contain NO lease frames — a
+    // replayed stale lease frame would lie about current lease state.
+    const c = await connect(token, "Desktop-C");
+    const hello = await nextMessage(c, "hello");
+    const leaseish = (hello.replay as any[]).filter(
+      (e) => e.type === "lease-event" || e.kind === "released",
+    );
+    expect(leaseish).toEqual([]);
+    a.close(); b.close(); c.close();
+  });
+
+  it("cross-account isolation: a lease in room A is invisible in room B", async () => {
+    const acct1 = await createTestAccount();
+    const acct2 = await createTestAccount();
+    const t1 = await issueTestSession(acct1);
+    const t2 = await issueTestSession(acct2);
+    const a = await connect(t1, "A");
+    await nextMessage(a, "hello");
+    const b = await connect(t2, "B");
+    await nextMessage(b, "hello");
+
+    const held = await leaseOp(a, "acquire", "s1", "dev-a");
+    expect(held.ok).toBe(true);
+    // Same sessionId + same deviceId string, but a DIFFERENT account/room: the
+    // lease from room A must not be visible, so the acquire succeeds here.
+    const other = await leaseOp(b, "acquire", "s1", "dev-a");
+    expect(other.ok).toBe(true);
+    expect(other.holder.device).toBe("B"); // stamped by room B's socket label
+    a.close(); b.close();
   });
 });

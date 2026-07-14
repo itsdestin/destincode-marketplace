@@ -187,7 +187,11 @@ export class SyncGroupRoom {
       }
     } else if (op === "release") {
       if (!rec) {
-        ok = true; // idempotent: releasing an already-free lease is success
+        // Idempotent: releasing an already-free lease is success. No `released`
+        // broadcast fires here — the lease is already gone (either never held or
+        // lazily expired above), so peers learn it's free via their next lazy
+        // query; a broadcast would only re-announce a state they already infer.
+        ok = true;
       } else if (rec.deviceId === deviceId) {
         await this.state.storage.delete(key);
         rec = null; ok = true;
@@ -212,7 +216,9 @@ export class SyncGroupRoom {
     }
 
     this.safeSend(ws, JSON.stringify({
-      type: "lease-result", reqId: reqId ?? null, op, sessionId, ok,
+      // Normalize reqId to a string-or-null echo — same hard-validate discipline
+      // used for op/sessionId/deviceId above; a client can't smuggle a non-string.
+      type: "lease-result", reqId: typeof reqId === "string" ? reqId : null, op, sessionId, ok,
       holder: rec ? { deviceId: rec.deviceId, device: rec.device, expiresAt: rec.expiresAt } : null,
     }));
   }

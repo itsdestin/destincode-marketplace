@@ -350,4 +350,98 @@ describe("sync hub — leases", () => {
     expect(other.holder.device).toBe("B"); // stamped by room B's socket label
     a.close(); b.close();
   });
+
+  it("force-acquire overwrites unconditionally, broadcasts {kind:'taken'} to others, and the steal really takes effect", async () => {
+    const acct = await createTestAccount();
+    const token = await issueTestSession(acct);
+    const a = await connect(token, "Desktop-A");
+    await nextMessage(a, "hello");
+    const b = await connect(token, "Desktop-B");
+    await nextMessage(b, "hello");
+
+    const held = await leaseOp(a, "acquire", "sf", "dev-a");
+    expect(held.ok).toBe(true);
+
+    // Kick off the force-acquire and await the 'taken' event on the OTHER socket.
+    const evP = nextMessage(a, "lease-event");
+    const stolen = await leaseOp(b, "force-acquire", "sf", "dev-b");
+    expect(stolen.ok).toBe(true); // unconditional — succeeds even though held
+    expect(stolen.holder.deviceId).toBe("dev-b");
+    expect(stolen.holder.device).toBe("Desktop-B");
+
+    const ev = await evP;
+    expect(ev.kind).toBe("taken");
+    expect(ev.sessionId).toBe("sf");
+    expect(ev.device).toBe("Desktop-B");
+    // Sender (b) must NOT receive its own event.
+    await expect(nextMessage(b, "lease-event", 400)).rejects.toThrow();
+
+    // The overwrite really happened: a get now reports dev-b as the holder.
+    const check = await leaseOp(a, "get", "sf", "dev-a");
+    expect(check.ok).toBe(true);
+    expect(check.holder.deviceId).toBe("dev-b");
+    a.close(); b.close();
+  });
+
+  it("takeover relays a request to the holder without moving the lease", async () => {
+    const acct = await createTestAccount();
+    const token = await issueTestSession(acct);
+    const a = await connect(token, "Desktop-A");
+    await nextMessage(a, "hello");
+    const b = await connect(token, "Desktop-B");
+    await nextMessage(b, "hello");
+
+    const held = await leaseOp(a, "acquire", "st", "dev-a");
+    expect(held.ok).toBe(true);
+
+    // dev-b requests a takeover; dev-a (the other socket) should hear the request.
+    const evP = nextMessage(a, "lease-event");
+    const req = await leaseOp(b, "takeover", "st", "dev-b");
+    expect(req.ok).toBe(true); // the DO ack's the relay, not a lease move
+
+    const ev = await evP;
+    expect(ev.kind).toBe("takeover-request");
+    expect(ev.sessionId).toBe("st");
+    expect(ev.from).toEqual({ deviceId: "dev-b", device: "Desktop-B" });
+    // Sender (b) must NOT receive its own request.
+    await expect(nextMessage(b, "lease-event", 400)).rejects.toThrow();
+
+    // The lease record is UNCHANGED — dev-a still holds it (holder answers a
+    // takeover by releasing; the DO never moves the lease itself).
+    const stillHeld = await leaseOp(a, "get", "st", "dev-a");
+    expect(stillHeld.ok).toBe(true);
+    expect(stillHeld.holder.deviceId).toBe("dev-a");
+    a.close(); b.close();
+  });
+
+  it("get returns the current holder (or null when free) and never mutates storage", async () => {
+    const acct = await createTestAccount();
+    const token = await issueTestSession(acct);
+    const a = await connect(token, "Desktop-A");
+    await nextMessage(a, "hello");
+    const b = await connect(token, "Desktop-B");
+    await nextMessage(b, "hello");
+
+    // Free session → ok:true, holder null.
+    const free = await leaseOp(a, "get", "sg", "dev-a");
+    expect(free.ok).toBe(true);
+    expect(free.holder).toBeNull();
+
+    // get did NOT lock it: a fresh device can still acquire the free session.
+    const acq = await leaseOp(b, "acquire", "sg", "dev-b");
+    expect(acq.ok).toBe(true);
+    expect(acq.holder.deviceId).toBe("dev-b");
+
+    // Held session → ok:true with the real holder, and repeating get doesn't
+    // change anything (still dev-b, still acquirable by no one else).
+    const first = await leaseOp(a, "get", "sg", "dev-a");
+    expect(first.ok).toBe(true);
+    expect(first.holder.deviceId).toBe("dev-b");
+    const second = await leaseOp(a, "get", "sg", "dev-a");
+    expect(second.holder.deviceId).toBe("dev-b");
+    const denied = await leaseOp(a, "acquire", "sg", "dev-a");
+    expect(denied.ok).toBe(false); // get left dev-b's lease intact
+    expect(denied.holder.deviceId).toBe("dev-b");
+    a.close(); b.close();
+  });
 });

@@ -28,6 +28,16 @@ interface RingEntry {
   at: number;
 }
 
+// Session lease (Plan 2b, spec §3): at most one device may hold an interactive
+// CC session at a time so two devices don't both --resume the same transcript
+// and corrupt it. The lease KEY is deviceId (a stable per-install userData UUID
+// from the message body); `device` is the human-readable label for UI. Leases
+// are DO-authoritative request/response state — NOT client-relayed signals — so
+// they never enter ALLOWED_KINDS or the replay ring (a replayed stale lease
+// frame would lie about who holds the lease now).
+interface LeaseRecord { deviceId: string; device: string; expiresAt: number; }
+const LEASE_TTL_MS = 300_000; // spec §3: 30s heartbeat, 300s expiry — ten missed beats
+
 export class SyncGroupRoom {
   constructor(private state: DurableObjectState, private env: Env) {}
 
@@ -68,6 +78,11 @@ export class SyncGroupRoom {
     }
     if (data.type === "signal") {
       await this.relaySignal(ws, data);
+      return;
+    }
+    if (data.type === "lease") {
+      await this.handleLease(ws, data);
+      return;
     }
   }
 
@@ -124,6 +139,95 @@ export class SyncGroupRoom {
     // Relay to every OTHER socket in this account's room. safeSend so one
     // closing peer can't strand the loop (same guard as PresenceRoom.safeSend).
     const frame = JSON.stringify({ type: "signal", ...entry });
+    for (const sock of this.state.getWebSockets()) {
+      if (sock === sender) continue;
+      this.safeSend(sock, frame);
+    }
+  }
+
+  private async handleLease(ws: WebSocket, data: any): Promise<void> {
+    // Same null-guard discipline as relaySignal — webSocketMessage has no
+    // try/catch, so a missing attachment on this ungated path must not throw.
+    const att = ws.deserializeAttachment() as Attachment | null;
+    if (!att) return;
+    const { op, sessionId, deviceId, reqId } = data;
+    // Validate hard: this is the only client-writable path into lease storage.
+    if (typeof op !== "string") return;
+    if (typeof sessionId !== "string" || !sessionId || sessionId.length > 100) return;
+    if (typeof deviceId !== "string" || !deviceId || deviceId.length > 100) return;
+
+    const key = `lease:${sessionId}`;
+    // Server time — spec §18 clock-skew rule: clients never compute expiry, so a
+    // device with a fast/slow clock can't hold a lease longer or shorter than TTL.
+    const now = Date.now();
+    // Read the current record, then lazily treat an expired one as free. Because
+    // the get→put below has no other await between them, the DO input gate keeps
+    // two concurrent lease ops from interleaving (same discipline as the ring
+    // append in relaySignal) — no alarms needed to reap expired leases.
+    let rec = (await this.state.storage.get<LeaseRecord>(key)) ?? null;
+    if (rec && rec.expiresAt <= now) rec = null; // lazy expiry
+
+    let ok = false;
+    if (op === "get") {
+      // Read-only probe of current holder (post-lazy-expiry). Never mutates.
+      ok = true;
+    } else if (op === "acquire") {
+      // Free OR already ours → (re)stamp a fresh TTL. Re-acquire is idempotent.
+      if (!rec || rec.deviceId === deviceId) {
+        rec = { deviceId, device: att.device, expiresAt: now + LEASE_TTL_MS };
+        await this.state.storage.put(key, rec);
+        ok = true;
+      }
+    } else if (op === "renew") {
+      // Heartbeat: only the holder may extend; a non-holder renew is a no-op.
+      if (rec && rec.deviceId === deviceId) {
+        rec = { ...rec, expiresAt: now + LEASE_TTL_MS };
+        await this.state.storage.put(key, rec);
+        ok = true;
+      }
+    } else if (op === "release") {
+      if (!rec) {
+        // Idempotent: releasing an already-free lease is success. No `released`
+        // broadcast fires here — the lease is already gone (either never held or
+        // lazily expired above), so peers learn it's free via their next lazy
+        // query; a broadcast would only re-announce a state they already infer.
+        ok = true;
+      } else if (rec.deviceId === deviceId) {
+        await this.state.storage.delete(key);
+        rec = null; ok = true;
+        // Tell the account's OTHER devices the session freed up immediately.
+        this.broadcastLeaseEvent(ws, { kind: "released", sessionId, device: att.device });
+      }
+      // A non-holder release leaves ok:false with the real holder reported.
+    } else if (op === "takeover") {
+      // Relay a takeover REQUEST to the account's other devices; the holder
+      // answers by releasing (spec §3 step 4). The DO doesn't move the lease.
+      ok = true;
+      this.broadcastLeaseEvent(ws, { kind: "takeover-request", sessionId, from: { deviceId, device: att.device } });
+    } else if (op === "force-acquire") {
+      // Spec §3 step 5: holder is unresponsive and the user confirmed a steal.
+      // Overwrite unconditionally and notify the (possibly dead) prior holder.
+      rec = { deviceId, device: att.device, expiresAt: now + LEASE_TTL_MS };
+      await this.state.storage.put(key, rec);
+      ok = true;
+      this.broadcastLeaseEvent(ws, { kind: "taken", sessionId, device: att.device });
+    } else {
+      return; // unknown op: drop, never reply
+    }
+
+    this.safeSend(ws, JSON.stringify({
+      // Normalize reqId to a string-or-null echo — same hard-validate discipline
+      // used for op/sessionId/deviceId above; a client can't smuggle a non-string.
+      type: "lease-result", reqId: typeof reqId === "string" ? reqId : null, op, sessionId, ok,
+      holder: rec ? { deviceId: rec.deviceId, device: rec.device, expiresAt: rec.expiresAt } : null,
+    }));
+  }
+
+  // DO-generated notification — deliberately NOT relaySignal and NOT ring-stored:
+  // a replayed stale lease frame would lie about current lease state, so lease
+  // events must never enter the replay ring.
+  private broadcastLeaseEvent(sender: WebSocket, payload: Record<string, unknown>): void {
+    const frame = JSON.stringify({ type: "lease-event", ...payload });
     for (const sock of this.state.getWebSockets()) {
       if (sock === sender) continue;
       this.safeSend(sock, frame);

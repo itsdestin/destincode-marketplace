@@ -1,0 +1,26 @@
+> Migrated from youcoded-dev docs/PITFALLS.md (2026-07-15 triage). The path-scoped rule in youcoded-dev/.claude/rules/registries.md is the terse always-injected layer; this doc is the depth.
+
+# Authoring a stdio MCP server for a marketplace plugin
+
+Read every entry before submission — these surfaced in sequence shipping `spotify-services` on Windows.
+
+## Spawn / PATH (Windows)
+
+- **`bash` is NOT on the Windows system PATH.** Git for Windows installs only `C:\Program Files\Git\cmd\` (git.exe) to the system PATH. `bash.exe` lives at `C:\Program Files\Git\usr\bin\` and is only on PATH inside an interactive Git Bash session. Don't write `command: "bash"` in `mcp-manifest.json` — it works on macOS but the Windows spawn fails silently with "command not found." Use a real on-PATH binary (`node`, `uvx`, `python`) when possible, or invoke bash by absolute path.
+- **Spaces in `command` paths break under CC's spawn (assumed `shell:true`).** `C:\Program Files\Git\usr\bin\bash.exe` gets word-split by cmd.exe at the first space → `'C:\Program' is not recognized`. Use the Windows 8.3 short name: `C:\PROGRA~1\Git\usr\bin\bash.exe`. Verify it: `powershell -Command "(New-Object -ComObject Scripting.FileSystemObject).GetFile('<path>').ShortPath"`. The 8.3 short name is stable across every Windows version since NTFS.
+- **MSYS-style `/c/Users/...` paths work only as args, never as `command`.** `bash.exe` translates them internally; Windows `CreateProcess`/cmd.exe don't. A `command` field MUST be a Windows-native path (`C:\...` or `C:/...`); MSYS paths are fine in `args` (bash translates them after spawn).
+- **`${PACKAGE_DIR}` is expanded by YouCoded's reconciler, NOT by Claude Code.** `mcp-manifest.json` may use `${PACKAGE_DIR}/...`, but it only resolves when the YouCoded desktop app's `reconcileMcp()` writes the resolved entry to `~/.claude.json` on launch. A user running Claude Code as a CLI outside YouCoded gets the literal placeholder → `/mcp` reports `Missing environment variables: PACKAGE_DIR`. Don't depend on this path for non-YouCoded users; bake an absolute path or a real-on-PATH command.
+- **Don't source the venv `activate` script in MCP launchers.** activate calls coreutils (`basename`, `dirname`) at `/usr/bin/`, which CC's MCP spawn omits from PATH → `basename: command not found`, python never starts. Symptom: `/mcp` shows ✗ Failed but the same launcher works from an interactive shell. Fix: call the venv's python by absolute path (`$VENV/Scripts/python.exe` Windows, `$VENV/bin/python` Unix) and set `VIRTUAL_ENV` manually for any library that introspects it.
+
+## SDK / Python / packaging
+
+- **MCP SDK 0.x → 1.x is a breaking change (dict → Pydantic).** 0.x accepted plain dicts from `@server.list_tools()`/`@server.call_tool()`; 1.x requires `mcp.types.Tool`/`mcp.types.TextContent` objects (attribute access, `tool.name`). An unbounded `mcp>=0.9.0` pin silently pulls 1.x → `tools/list` crashes with `'dict' object has no attribute 'name'`. **Pin `mcp>=1.0.0,<2.0.0`.** Same risk for any Python SDK with a major Pydantic migration.
+- **`PYTHONIOENCODING=utf-8` is required for any Python that prints Unicode under Git Bash.** Git Bash stdout to Python defaults to cp1252; Python 3.13 raises `UnicodeEncodeError` on the first ✓/✗ glyph and exits before any work. Set it at the bash invocation (`PYTHONIOENCODING=utf-8 python script.py`). No-op on macOS/Linux.
+- **pywinrt namespace packages don't transitively pull each other.** Each WinRT namespace is a separate PyPI package (`winrt-Windows.Media.Control`, `winrt-Windows.Foundation`, `winrt-Windows.Foundation.Collections`, …). A method returning an `IVectorView` needs the Collections package too. Pip resolution doesn't catch the gap (imports defer to runtime); a real-Windows smoke test does.
+- **Don't gate setup scripts on system Python.** `python3` resolves to a Microsoft Store stub on Windows (prints an install hint, exits non-zero), so `! python3 -c '...'` falsely fails for `uv`-managed Python (the recommended path). Drop the system-Python check (`uv venv --python X.Y` fetches on demand) or also try `py`/`python`.
+- **`rsync` is not on Git Bash's PATH.** Use a `tar | tar` pipe or `cp -r` for portable file-copy; apply excludes consistently (`.venv`, `__pycache__`, `*.egg-info`, `.pytest_cache`).
+
+## Verification
+
+- **`claude mcp list` is a liar — it only verifies `initialize`.** The CLI's connection check stops after the first JSON-RPC step; the in-session `/mcp` host runs the full handshake including `tools/list`. A server can show `✓ Connected` in the CLI and `✗ Failed` in `/mcp` when `tools/list` is broken. Always verify with `/mcp`.
+- **Test the MCP handshake end-to-end before submission.** Unit tests on tool handlers don't catch protocol-layer issues (Tool/TextContent shapes, SDK skew, stdio framing). Write a Node probe that spawns the server with the ACTUAL command/args from `mcp-manifest.json`, sends `initialize` + `notifications/initialized` + `tools/list`, and asserts all three succeed. Reference: the spotify-services PR spawn-probe.

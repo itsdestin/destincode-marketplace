@@ -2,7 +2,7 @@
 
 The skill store for [YouCoded](https://github.com/itsdestin/youcoded). Browse and install skills from within the app.
 
-Contains 151 entries: 29 YouCoded-specific skills and 122 imported from Anthropic's official Claude Code plugin registry.
+Contains 174 entries: 26 YouCoded-specific skills and 148 imported from Anthropic's official Claude Code plugin registry.
 
 ## How It Works
 
@@ -15,7 +15,8 @@ Contains 151 entries: 29 YouCoded-specific skills and 122 imported from Anthropi
 ## Structure
 
 ```
-index.json                 # All registry entries (151 entries)
+index.json                 # All registry entries (174 entries)
+marketplace.json           # YouCoded/community entries (source for the sync)
 curated-defaults.json      # Default skills for new users
 featured.json              # Featured skill highlights
 stats.json                 # Usage stats (rebuilt by CI)
@@ -35,8 +36,8 @@ Preserves all YouCoded entries, imports upstream alphabetically, applies `overri
 
 ## Adding a Skill
 
-1. Create a JSON file in `registry/prompts/` or `registry/plugins/`
-2. Open a pull request — CI rebuilds `index.json`
+1. Add your plugin as a directory in this repo and register it in `marketplace.json`
+2. Open a pull request — CI validates it and rebuilds `index.json`
 
 Or create a skill inside YouCoded and share it via the app's share feature.
 
@@ -50,7 +51,7 @@ Or create a skill inside YouCoded and share it via the app's share feature.
   "description": "One-line description",
   "category": "personal | work | development | ...",
   "author": "@handle",
-  "sourceMarketplace": "youcoded-core | claude-plugins-official",
+  "sourceMarketplace": "youcoded | anthropic",
   "sourceType": "prompt | local | url | git-subdir",
   "tags": []
 }

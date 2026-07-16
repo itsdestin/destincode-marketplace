@@ -48,3 +48,45 @@ The base templates use `currentColor` for the whole body + dark cutouts for eyes
 
 - Phase 1.5 (baseline): `_preview/assets/mascot-{idle,welcome,shocked,dizzy}.svg` + mirror into `screen_dir`
 - Phase 2 (finalize): `<slug>/assets/mascot-{idle,welcome,shocked,dizzy}.svg`
+
+## Mascot rig (the preferred format — ship it alongside the flat variants)
+
+The app is moving mascots to **rigs**: a single SVG whose named groups it animates (poses,
+limb-trailing drag physics, blinking, edge-peek grip hands, spring-following scene
+companions). Flat variants stay REQUIRED for now — the rig renderer ships in an upcoming
+release, and until then the flat art is what users see. Ship both: the four flat SVGs above
+plus `assets/mascot-rig.svg`, referenced from the manifest as `"mascot": { ..., "rig":
+"assets/mascot-rig.svg" }`.
+
+**The authoring contract lives in the wecoded-themes repo — fetch and follow it:**
+
+```
+https://raw.githubusercontent.com/itsdestin/wecoded-themes/main/mascots/README.md
+```
+
+Three ways to build the rig, in ascending effort (all detailed in that README):
+
+1. **Mix and match** — fetch one of the six approved skins from
+   `https://raw.githubusercontent.com/itsdestin/wecoded-themes/main/mascots/skins/`
+   (`2-5d-soft` · `clay` · `comic-pop` · `comic-burst` · `newsprint` · `sticker`), recolor it
+   per the substitution table in its header comment, and drop components (hats / eyewear /
+   held items) from `mascots/components/` into the slots.
+2. **Adapt an example** — `mascots/examples/golden-sunbreak.rig.svg` /
+   `halftone-dimension.rig.svg` (solid bodies), `kuromi-dreamer.rig.svg` /
+   `strawberry-kitty.rig.svg` (outline/white bodies).
+3. **Generate from scratch** under the README's constraints (non-negotiable: the body
+   capsule path, canonical limb positions + pivots, all six face groups painted on a solid
+   body — never cutouts — slots present, limbs drawn hanging down).
+
+Rig-specific rules that DIFFER from the flat-variant rules above:
+
+- Rigs are **inlined** into the app after sanitizing, so CSS variables DO resolve — tint
+  with `var(--rig-accent, <fallback>)` / `var(--rig-on-accent, <fallback>)` /
+  `var(--rig-line, <fallback>)`, or hardcode identity colors. Never `currentColor` (that is
+  the flat-`<img>`-path rule; in rigs it still resolves to black in previews).
+- Six faces, not four: `idle · welcome · curious · shocked · dizzy · blink` — all but idle
+  `style="display:none"`.
+- No baked scenery (suns, sparkle fields) and no `<animate>`/SMIL — flourishes ship as scene
+  companions, and ALL animation is app-side. The sanitizer strips `<script>`, `<style>`,
+  `<foreignObject>`, SMIL tags, `on*` attributes, and external URLs.
+- Same 24 px quality bar as the flat variants: preview every face group at 24 / 48 / 80 px.

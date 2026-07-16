@@ -133,7 +133,7 @@ Before rendering Kit, generate the assets Kit needs in review columns. Write int
 > **Write order matters — manifest LAST.** Assets first, manifest second. The chokidar watcher fires a reload per file; if the manifest exists before all assets, the reload reads it and the app briefly renders with broken asset URLs. Writing manifest last lets the debounce collapse everything to one clean event after all files are present.
 
 1. **Hero wallpaper** — copy chosen concept's wallpaper to `_preview/assets/wallpaper.<ext>` and `${screen_dir}/wallpaper.<ext>`.
-2. **Mascots** (4 variants, if theme has them) — **read `reference/mascots.md` before generating.** Write `_preview/assets/mascot-{idle,welcome,shocked,dizzy}.svg` and mirror into `screen_dir`.
+2. **Mascots** (4 variants, if theme has them) — **read `reference/mascots.md` before generating.** Write `_preview/assets/mascot-{idle,welcome,shocked,dizzy}.svg` and mirror into `screen_dir`. Skip the rig here — Kit iterates on the flat variants; the rig is authored once in Phase 2 from the settled design.
 3. **Icon overrides** — only the slots the concept calls for. `_preview/assets/icon-<slot>.svg` + mirror.
 4. **Pattern SVG** — only if concept has a pattern. `_preview/assets/pattern.svg` + mirror.
 5. **Manifest LAST** — `_preview/manifest.json` with relative asset paths. Omit mascot / icon / pattern sections if not used — matching Kit columns hide themselves automatically.
@@ -209,6 +209,13 @@ When Kit user clicks **Build Theme Pack** (intent `"build"`), **read `reference/
 
 Most assets already exist in `_preview/assets/` from Phase 1.5 — Phase 2 is mostly `cp` operations; only regenerate what's missing.
 
+**Mascot rig (if the theme has mascots):** author `assets/mascot-rig.svg` from the settled
+flat-mascot design and add `"rig": "assets/mascot-rig.svg"` to the manifest's `mascot`
+section — see the "Mascot rig" section of `reference/mascots.md` (mix/match a skin from the
+wecoded-themes `mascots/` library, adapt an example, or generate under the README
+constraints). Flat variants stay in the manifest — they're what the app renders until the
+rig renderer ships.
+
 ---
 
 ## Phase 3 — In-App Refinement
@@ -266,6 +273,7 @@ After the pack is written, refinements go directly to manifest or asset files; a
 - [ ] Assets moved from `_preview/assets/` → `<slug>/assets/`; wallpaper also still in `screen_dir`
 - [ ] For image themes: `wallpaper-terminal.webp` baked via `prep-terminal-bg.cjs` AND manifest includes `background.terminal-value`
 - [ ] If mascots were regenerated, they follow `reference/mascots.md` (verified distinct at 24 px)
+- [ ] If the theme has mascots: `assets/mascot-rig.svg` authored per the "Mascot rig" section of `reference/mascots.md` + manifest `mascot.rig` set (flat variants kept)
 - [ ] Manifest uses relative asset paths only
 - [ ] Bubble blur/opacity are manifest fields, NOT hardcoded in `custom_css`
 - [ ] Wallpaper + pattern come from `background.value` / `background.pattern` — NOT from `body::before`/`body::after` in `custom_css`

@@ -234,6 +234,48 @@ describe("sync hub — leases", () => {
     a.close(); b.close();
   });
 
+  // Regression (2026-07-16): a renew that arrives AFTER the lease lazily
+  // expired (the holder's heartbeat was suspended by system sleep / screen
+  // lock / OS throttling) used to fail ok:false — indistinguishable from a
+  // force-acquire, so the client showed a spurious "session was taken over on
+  // another device" on idle sessions. The holder is demonstrably still alive
+  // (it's the one renewing) and nobody else claimed the session, so a renew
+  // against a FREE lease re-acquires it.
+  it("renew after lazy expiry revives a free lease for the original holder", async () => {
+    const acct = await createTestAccount();
+    const token = await issueTestSession(acct);
+    const a = await connect(token, "Desktop-A");
+    await nextMessage(a, "hello");
+    const b = await connect(token, "Desktop-B");
+    await nextMessage(b, "hello");
+
+    const base = Date.now();
+    const acq = await leaseOp(a, "acquire", "s-revive", "dev-a");
+    expect(acq.ok).toBe(true);
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      // 310s later — past the 300s TTL, the lease lazily reads as free. The
+      // original holder's next heartbeat must revive it, not fail.
+      vi.setSystemTime(base + 310_000);
+      const revived = await leaseOp(a, "renew", "s-revive", "dev-a");
+      expect(revived.ok).toBe(true);
+      expect(revived.holder.deviceId).toBe("dev-a");
+      expect(revived.holder.expiresAt).toBe(base + 310_000 + 300_000);
+
+      // A lease genuinely held by SOMEONE ELSE still rejects a renew — the
+      // revive path applies only to free leases.
+      const taken = await leaseOp(b, "force-acquire", "s-revive", "dev-b");
+      expect(taken.ok).toBe(true);
+      const lost = await leaseOp(a, "renew", "s-revive", "dev-a");
+      expect(lost.ok).toBe(false);
+      expect(lost.holder.deviceId).toBe("dev-b");
+    } finally {
+      vi.useRealTimers();
+    }
+    a.close(); b.close();
+  });
+
   it("release by holder frees it; release when free returns ok:true (idempotent)", async () => {
     const acct = await createTestAccount();
     const token = await issueTestSession(acct);

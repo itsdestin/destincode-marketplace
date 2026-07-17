@@ -179,9 +179,19 @@ export class SyncGroupRoom {
         ok = true;
       }
     } else if (op === "renew") {
-      // Heartbeat: only the holder may extend; a non-holder renew is a no-op.
-      if (rec && rec.deviceId === deviceId) {
-        rec = { ...rec, expiresAt: now + LEASE_TTL_MS };
+      // Heartbeat: the holder extends; a renew against a FREE lease (no record,
+      // or one the lazy-expiry above just cleared) re-acquires it. A lease that
+      // lapsed because the holder's heartbeat was suspended (system sleep,
+      // screen lock, OS throttling an idle process) is a lapse, not a takeover
+      // — the device renewing is demonstrably still alive and nobody else
+      // claimed the session, so re-granting is safe and identical to the
+      // acquire the client would otherwise have to issue. Without this, 5+
+      // idle minutes made the client's failed renew indistinguishable from a
+      // force-acquire and misreported "taken over on another device"
+      // (2026-07-16). A renew while ANOTHER device holds it still fails, with
+      // that holder reported so the client can attribute a real takeover.
+      if (!rec || rec.deviceId === deviceId) {
+        rec = { deviceId, device: att.device, expiresAt: now + LEASE_TTL_MS };
         await this.state.storage.put(key, rec);
         ok = true;
       }

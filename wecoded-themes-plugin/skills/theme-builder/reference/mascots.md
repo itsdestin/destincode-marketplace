@@ -51,10 +51,12 @@ The base templates use `currentColor` for the whole body + dark cutouts for eyes
 
 ## Mascot rig (the preferred format — ship it alongside the flat variants)
 
-The app is moving mascots to **rigs**: a single SVG whose named groups it animates (poses,
+The app renders mascots as **rigs**: a single SVG whose named groups it animates (poses,
 limb-trailing drag physics, blinking, edge-peek grip hands, spring-following scene
-companions). Flat variants stay REQUIRED for now — the rig renderer ships in an upcoming
-release, and until then the flat art is what users see. Ship both: the four flat SVGs above
+companions). The renderer shipped 2026-07-16 and is live on **Electron desktop only** —
+Android and remote browsers can't fetch `theme-asset://`, so they still show the flat art
+(`Icons.tsx`, `const desktop = !isAndroid() && !isRemoteMode()`). That's why flat variants
+stay REQUIRED: they're the other half of the matrix, not a placeholder. Ship both: the four flat SVGs above
 plus `assets/mascot-rig.svg`, referenced from the manifest as `"mascot": { ..., "rig":
 "assets/mascot-rig.svg" }`.
 
@@ -76,7 +78,10 @@ Three ways to build the rig, in ascending effort (all detailed in that README):
    `strawberry-kitty.rig.svg` (outline/white bodies).
 3. **Generate from scratch** under the README's constraints (non-negotiable: the body
    capsule path, canonical limb positions + pivots, all six face groups painted on a solid
-   body — never cutouts — slots present, limbs drawn hanging down).
+   body — never cutouts — slots present, limbs drawn hanging down, both grip mittens).
+
+Prefer (1) or (2). Every skin and example already carries both grip-mitten groups, so
+starting from one is the only path that can't quietly omit a part.
 
 Rig-specific rules that DIFFER from the flat-variant rules above:
 
@@ -86,6 +91,11 @@ Rig-specific rules that DIFFER from the flat-variant rules above:
   the flat-`<img>`-path rule; in rigs it still resolves to black in previews).
 - Six faces, not four: `idle · welcome · curious · shocked · dizzy · blink` — all but idle
   `style="display:none"`.
+- **Both grip mittens**: `rig-hand-peek-left` + `rig-hand-peek-right`, also `display:none`
+  (only the app's edge overlay shows them). Fixed geometry — `x="0.7"` / `x="20.7"`,
+  `y="8.3"`, `2.6 × 3.4`, `rx="1.17"` — recolor only. Omitting them is invisible until the
+  buddy is dragged to a *side* screen edge, where he then peeks bare-armed; two shipped
+  themes did exactly that. `wecoded-themes` CI (`scripts/audit-rigs.mjs`) checks this.
 - No baked scenery (suns, sparkle fields) and no `<animate>`/SMIL — flourishes ship as scene
   companions, and ALL animation is app-side. The sanitizer strips `<script>`, `<style>`,
   `<foreignObject>`, SMIL tags, `on*` attributes, and external URLs.

@@ -13,7 +13,9 @@ Or, manually:
 
 1. Fork this repo.
 2. Add your plugin under `plugins/<plugin-id>/` with the required structure (see existing entries as a template).
-3. Update `index.json` and `marketplace.json` with your entry.
+3. Update `index.json` and `marketplace.json` with your entry. (Leave
+   `.claude-plugin/marketplace.json` alone — CI regenerates it from
+   `marketplace.json` on merge.)
 4. Open a PR to this repo.
 
 CI (`.github/workflows/validate-plugin-pr.yml`) validates community plugin PRs automatically.

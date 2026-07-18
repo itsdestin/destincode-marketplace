@@ -1,0 +1,177 @@
+{
+  "name": "wecoded-marketplace",
+  "description": "YouCoded skills and plugins � productivity tools, personal knowledge management, and developer utilities",
+  "owner": {
+    "name": "YouCoded"
+  },
+  "plugins": [
+    {
+      "name": "civic-report",
+      "displayName": "Civic Report",
+      "description": "Generate a source-linked report on your federal representatives from your address, personalized by angle/tone/depth.",
+      "author": {
+        "name": "@destin",
+        "github": "itsdestin"
+      },
+      "category": "personal",
+      "source": {
+        "source": "local",
+        "path": "civic-report"
+      },
+      "prompt": "/civic-report"
+    },
+    {
+      "name": "wecoded-marketplace-publisher",
+      "displayName": "WeCoded Marketplace Publisher",
+      "description": "Publish your plugins to the WeCoded marketplace — conversational, non-technical-user friendly.",
+      "author": {
+        "name": "@destin",
+        "github": "itsdestin"
+      },
+      "category": "productivity",
+      "source": {
+        "source": "local",
+        "path": "wecoded-marketplace-publisher"
+      },
+      "prompt": "/publish-to-marketplace"
+    },
+    {
+      "name": "youcoded-core",
+      "displayName": "YouCoded Core",
+      "description": "Foundation toolkit — safety hooks, commands, sync infrastructure, diagnostics",
+      "author": {
+        "name": "@destin",
+        "github": "destinationunknown"
+      },
+      "category": "productivity",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/itsdestin/youcoded-core.git"
+      },
+      "homepage": "https://github.com/itsdestin/youcoded-core",
+      "removable": false
+    },
+    {
+      "name": "youcoded-encyclopedia",
+      "displayName": "Encyclopedia",
+      "description": "Personal knowledge system — journaling, encyclopedia, interviewer, librarian, compiler",
+      "author": {
+        "name": "@destin",
+        "github": "destinationunknown"
+      },
+      "category": "personal",
+      "source": {
+        "source": "local",
+        "path": "youcoded-encyclopedia"
+      }
+    },
+    {
+      "name": "youcoded-food",
+      "displayName": "Food",
+      "description": "Fork-file: track recipes, meals, and food preferences",
+      "author": {
+        "name": "@destin",
+        "github": "destinationunknown"
+      },
+      "category": "personal",
+      "source": {
+        "source": "local",
+        "path": "youcoded-food"
+      }
+    },
+    {
+      "name": "youcoded-inbox",
+      "displayName": "Inbox",
+      "description": "Process notes and screenshots from Todoist, Drive, Gmail, and more",
+      "author": {
+        "name": "@destin",
+        "github": "destinationunknown"
+      },
+      "category": "personal",
+      "source": {
+        "source": "local",
+        "path": "youcoded-inbox"
+      }
+    },
+    {
+      "name": "wecoded-themes-plugin",
+      "displayName": "Theme Builder",
+      "description": "Build and share custom themes — AI-generated or from scratch",
+      "author": {
+        "name": "@destin",
+        "github": "destinationunknown"
+      },
+      "category": "design",
+      "source": {
+        "source": "local",
+        "path": "wecoded-themes-plugin"
+      }
+    },
+    {
+      "name": "google-services",
+      "displayName": "Google Services",
+      "description": "Gmail, Drive, Docs, Sheets, Slides, Calendar — one connect. Surfaced through the Google Services integration tile.",
+      "author": {
+        "name": "YouCoded"
+      },
+      "category": "integrations",
+      "source": {
+        "source": "local",
+        "path": "google-services"
+      }
+    },
+    {
+      "name": "spotify-services",
+      "displayName": "Spotify Services",
+      "description": "Spotify Web API + native local desktop control. Premium required.",
+      "author": { "name": "YouCoded" },
+      "category": "integrations",
+      "source": { "source": "local", "path": "spotify-services" },
+      "prompt": "/spotify-services-setup"
+    },
+    {
+      "name": "youcoded-messaging",
+      "displayName": "Messaging",
+      "description": "Send and read SMS/iMessage via MCP servers",
+      "author": {
+        "name": "@destin",
+        "github": "destinationunknown"
+      },
+      "category": "personal",
+      "source": {
+        "source": "local",
+        "path": "youcoded-messaging"
+      }
+    },
+    {
+      "name": "youcoded-output-styles",
+      "displayName": "Output Styles",
+      "description": "Tone presets — casual, conversational, academic, professional",
+      "author": {
+        "name": "@destin",
+        "github": "destinationunknown"
+      },
+      "category": "productivity",
+      "source": {
+        "source": "local",
+        "path": "youcoded-output-styles"
+      }
+    },
+    {
+      "name": "apple-services",
+      "displayName": "Apple Services",
+      "description": "Calendar, Reminders, Contacts, Notes, Mail, and iCloud Drive — one setup. macOS only.",
+      "author": {
+        "name": "YouCoded"
+      },
+      "category": "integrations",
+      "source": {
+        "source": "local",
+        "path": "apple-services"
+      },
+      "platforms": [
+        "macos"
+      ]
+    }
+  ]
+}

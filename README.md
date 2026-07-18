@@ -17,13 +17,21 @@ Contains 174 entries: 26 YouCoded-specific skills and 148 imported from Anthropi
 ```
 index.json                 # All registry entries (174 entries)
 marketplace.json           # YouCoded/community entries (source for the sync)
+.claude-plugin/
+  marketplace.json         # Generated mirror — the path Claude Code actually reads
 curated-defaults.json      # Default skills for new users
 featured.json              # Featured skill highlights
 stats.json                 # Usage stats (rebuilt by CI)
 overrides/                 # Per-plugin custom metadata
 scripts/
   sync.js                  # Imports plugins from upstream Anthropic registries
+  mirror-cc-manifest.js    # Regenerates .claude-plugin/marketplace.json
 ```
+
+`.claude-plugin/marketplace.json` is generated — never hand-edit it. Edit
+`marketplace.json` at the root; CI regenerates the mirror on merge. Claude Code
+loads a marketplace exclusively from `<installLocation>/.claude-plugin/marketplace.json`
+with no fallback to the root copy, so a clone missing that file is unloadable.
 
 ## Upstream Sync
 

@@ -301,6 +301,12 @@ jobs:
               print('No new plugins to add')
           "
 
+      # Claude Code only loads <installLocation>/.claude-plugin/marketplace.json
+      # — it does not fall back to the root copy. Regenerate the mirror after
+      # auto-add so a CC-side re-clone of this repo yields a loadable marketplace.
+      - name: Mirror marketplace.json to .claude-plugin/
+        run: node scripts/mirror-cc-manifest.js
+
       - name: Rebuild skills/index.json
         env:
           # Use the built-in Actions token so the Tree API gets 5000/hr.
@@ -327,7 +333,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add marketplace.json skills/index.json index.json sync-report.json
+          git add marketplace.json .claude-plugin/marketplace.json skills/index.json index.json sync-report.json
           if git diff --cached --quiet; then
             echo "No changes to commit"
           else

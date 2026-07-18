@@ -16,6 +16,20 @@ async function connect(token: string, device: string): Promise<WebSocket> {
   return ws;
 }
 
+// Recency tests connect with a stable ?deviceId= (the machineId) alongside the
+// human ?device= label — mirrors the client threading machineId through so a
+// signal maps to a registry row reliably.
+async function connectWithDeviceId(token: string, device: string, deviceId: string): Promise<WebSocket> {
+  const res = await SELF.fetch(
+    `https://test.local/sync/hub?device=${encodeURIComponent(device)}&deviceId=${encodeURIComponent(deviceId)}`,
+    { headers: { Upgrade: "websocket", Authorization: `Bearer ${token}` } }
+  );
+  expect(res.status).toBe(101);
+  const ws = res.webSocket!;
+  ws.accept();
+  return ws;
+}
+
 function nextMessage(ws: WebSocket, type: string, timeoutMs = 2000): Promise<any> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`timeout waiting for ${type}`)), timeoutMs);
@@ -485,5 +499,121 @@ describe("sync hub — leases", () => {
     expect(denied.ok).toBe(false); // get left dev-b's lease intact
     expect(denied.holder.deviceId).toBe("dev-b");
     a.close(); b.close();
+  });
+});
+
+// Sync-menu-recency (2026-07-17): the DO records each device's most-recent
+// successful-sync timestamp in a durable per-account `lastSyncByDevice` map,
+// keyed by the connection-pinned deviceId (machineId), and ships that map in
+// the hello frame so other devices show real sync recency. Backward-compatible:
+// old clients send no deviceId → the write is skipped, nothing throws.
+describe("sync hub — device recency", () => {
+  it("records lastSyncByDevice[deviceId] = <at> in storage on a signal", async () => {
+    const acct = await createTestAccount();
+    const token = await issueTestSession(acct);
+    const a = await connectWithDeviceId(token, "Desktop-A", "machine-A");
+    await nextMessage(a, "hello");
+
+    a.send(JSON.stringify({ type: "signal", kind: "space-updated", spaceKey: "repo-1" }));
+    // Let the DO persist the map, then read it back via a reconnecting device's hello.
+    await new Promise((r) => setTimeout(r, 100));
+    const b = await connectWithDeviceId(token, "Desktop-B", "machine-B");
+    const hello = await nextMessage(b, "hello");
+    expect(typeof hello.lastSyncByDevice).toBe("object");
+    expect(typeof hello.lastSyncByDevice["machine-A"]).toBe("number");
+    a.close(); b.close();
+  });
+
+  it("includes deviceId on the relayed signal frame to OTHER sockets", async () => {
+    const acct = await createTestAccount();
+    const token = await issueTestSession(acct);
+    const a = await connectWithDeviceId(token, "Desktop-A", "machine-A");
+    await nextMessage(a, "hello");
+    const b = await connectWithDeviceId(token, "Desktop-B", "machine-B");
+    await nextMessage(b, "hello");
+
+    a.send(JSON.stringify({ type: "signal", kind: "space-updated", spaceKey: "repo-1" }));
+    const got = await nextMessage(b, "signal");
+    expect(got.deviceId).toBe("machine-A");
+    expect(typeof got.at).toBe("number");
+    a.close(); b.close();
+  });
+
+  it("hello carries prior entries: connect A, signal, reconnect B → B's hello has A's entry with A's at", async () => {
+    const acct = await createTestAccount();
+    const token = await issueTestSession(acct);
+    const a = await connectWithDeviceId(token, "Desktop-A", "machine-A");
+    await nextMessage(a, "hello");
+
+    const before = Date.now();
+    a.send(JSON.stringify({ type: "signal", kind: "space-updated", spaceKey: "repo-1" }));
+    await new Promise((r) => setTimeout(r, 100));
+    const after = Date.now();
+
+    const b = await connectWithDeviceId(token, "Desktop-B", "machine-B");
+    const hello = await nextMessage(b, "hello");
+    const at = hello.lastSyncByDevice["machine-A"];
+    expect(at).toBeGreaterThanOrEqual(before);
+    expect(at).toBeLessThanOrEqual(after);
+    a.close(); b.close();
+  });
+
+  it("a signal from a socket with NO deviceId does not throw and records nothing", async () => {
+    const acct = await createTestAccount();
+    const token = await issueTestSession(acct);
+    // Old client: connects with only ?device=, no ?deviceId=.
+    const a = await connect(token, "Desktop-A");
+    await nextMessage(a, "hello");
+    const b = await connect(token, "Desktop-B");
+    await nextMessage(b, "hello");
+
+    // Signal still relays fine (no throw) — the sender just isn't recorded.
+    a.send(JSON.stringify({ type: "signal", kind: "space-updated", spaceKey: "repo-1" }));
+    const got = await nextMessage(b, "signal");
+    expect(got.spaceKey).toBe("repo-1");
+    await new Promise((r) => setTimeout(r, 100));
+
+    // A reconnecting device's hello map is empty — nothing was recorded.
+    const c = await connect(token, "Desktop-C");
+    const hello = await nextMessage(c, "hello");
+    expect(hello.lastSyncByDevice).toEqual({});
+    a.close(); b.close(); c.close();
+  });
+
+  it("map is per-account: a deviceId recorded in room A is absent from room B's hello", async () => {
+    const acct1 = await createTestAccount();
+    const acct2 = await createTestAccount();
+    const t1 = await issueTestSession(acct1);
+    const t2 = await issueTestSession(acct2);
+    const a = await connectWithDeviceId(t1, "A", "machine-A");
+    await nextMessage(a, "hello");
+    a.send(JSON.stringify({ type: "signal", kind: "space-updated", spaceKey: "k" }));
+    await new Promise((r) => setTimeout(r, 100));
+
+    const b = await connectWithDeviceId(t2, "B", "machine-B");
+    const hello = await nextMessage(b, "hello");
+    expect(hello.lastSyncByDevice["machine-A"]).toBeUndefined();
+    a.close(); b.close();
+  });
+
+  it("two rapid signals from different devices both land (no interleave clobber)", async () => {
+    const acct = await createTestAccount();
+    const token = await issueTestSession(acct);
+    const a = await connectWithDeviceId(token, "Desktop-A", "machine-A");
+    await nextMessage(a, "hello");
+    const b = await connectWithDeviceId(token, "Desktop-B", "machine-B");
+    await nextMessage(b, "hello");
+
+    // Fire both without awaiting between — the DO input gate must serialize the
+    // get→put pairs so neither map write clobbers the other.
+    a.send(JSON.stringify({ type: "signal", kind: "space-updated", spaceKey: "repo-1" }));
+    b.send(JSON.stringify({ type: "signal", kind: "space-updated", spaceKey: "repo-2" }));
+    await new Promise((r) => setTimeout(r, 150));
+
+    const c = await connectWithDeviceId(token, "Desktop-C", "machine-C");
+    const hello = await nextMessage(c, "hello");
+    expect(typeof hello.lastSyncByDevice["machine-A"]).toBe("number");
+    expect(typeof hello.lastSyncByDevice["machine-B"]).toBe("number");
+    a.close(); b.close(); c.close();
   });
 });

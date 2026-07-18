@@ -10,6 +10,9 @@ import type { Env } from "../types";
 interface Attachment {
   userId: string;
   device: string;
+  // Stable machineId (UUID) pinned to the socket at connect. Keys the per-device
+  // sync-recency map; "" for old clients that connect without ?deviceId=.
+  deviceId: string;
 }
 
 // Signal kinds devices may relay. Phase 2 (leases/takeover) extends this list
@@ -46,6 +49,9 @@ export class SyncGroupRoom {
     // this DO is never reachable without requireAuth having resolved the user.
     const userId = request.headers.get("X-Sync-User");
     const device = request.headers.get("X-Sync-Device") ?? "unknown";
+    // Connection-pinned machineId (empty for old clients). Read once here so a
+    // client can't respoof it per-message — same discipline as `device`.
+    const deviceId = request.headers.get("X-Sync-Device-Id") ?? "";
     // Case-insensitive Upgrade check — the header value is spec-legal in any
     // case ("WebSocket"), and both the route and PresenceRoom lowercase it.
     if (!userId || request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
@@ -57,12 +63,18 @@ export class SyncGroupRoom {
     // Hibernation API — handlers below survive DO eviction. Tag = account id
     // (multi-device: N sockets, one tag) so getWebSockets(userId) finds them all.
     this.state.acceptWebSocket(server, [userId]);
-    server.serializeAttachment({ userId, device } satisfies Attachment);
+    server.serializeAttachment({ userId, device, deviceId } satisfies Attachment);
 
     // hello carries the ring so a reconnecting device catches up on any signal
     // it missed while briefly disconnected. Empty on a fresh room.
     const ring = (await this.state.storage.get<RingEntry[]>("ring")) ?? [];
-    this.safeSend(server, JSON.stringify({ type: "hello", replay: ring }));
+    // Also ship the per-device last-sync map so the sync menu shows real recency
+    // the instant it opens — even for a device that synced hours ago then went
+    // quiet (the 32-entry replay ring can't recover that). Missing → {} (fresh
+    // room, or map lost: the DO is an accelerant, so a row just falls back to
+    // its launch-time value — never a throw).
+    const lastSyncByDevice = (await this.state.storage.get<Record<string, number>>("lastSyncByDevice")) ?? {};
+    this.safeSend(server, JSON.stringify({ type: "hello", replay: ring, lastSyncByDevice }));
 
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -136,9 +148,23 @@ export class SyncGroupRoom {
     ring.push(entry);
     await this.state.storage.put("ring", ring.slice(-RING_MAX));
 
+    // per-device last-sync recency: fed to other devices' sync menu. Keyed by the
+    // connection-pinned machineId. Old clients connect without a deviceId ("") —
+    // skip the write, never throw (graceful rollout; the DO is an accelerant).
+    // Same input-gate discipline as the ring append above: this get→put pair has
+    // NO other await between the read and the write, so two concurrent signals
+    // can't interleave and clobber each other's map entry.
+    if (att.deviceId) {
+      const m = (await this.state.storage.get<Record<string, number>>("lastSyncByDevice")) ?? {};
+      m[att.deviceId] = entry.at;
+      await this.state.storage.put("lastSyncByDevice", m);
+    }
+
     // Relay to every OTHER socket in this account's room. safeSend so one
     // closing peer can't strand the loop (same guard as PresenceRoom.safeSend).
-    const frame = JSON.stringify({ type: "signal", ...entry });
+    // deviceId lets a receiver map the signal to a registry row (machineId is the
+    // row key); "" for old senders, which receivers ignore.
+    const frame = JSON.stringify({ type: "signal", ...entry, deviceId: att.deviceId });
     for (const sock of this.state.getWebSockets()) {
       if (sock === sender) continue;
       this.safeSend(sock, frame);

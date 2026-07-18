@@ -21,5 +21,9 @@ syncRoutes.get("/sync/hub", requireAuth, async (c) => {
   const fwd = new Request("https://synchub.internal/connect", c.req.raw);
   fwd.headers.set("X-Sync-User", userId);
   fwd.headers.set("X-Sync-Device", c.req.query("device") ?? "unknown");
+  // ?deviceId= is the stable machineId (a UUID), threaded through so the DO can
+  // key per-device sync recency reliably (rename-proof, unlike the ?device= label).
+  // Omitted by old clients — the DO skips the recency write when it's absent.
+  fwd.headers.set("X-Sync-Device-Id", c.req.query("deviceId") ?? "");
   return stub.fetch(fwd);
 });

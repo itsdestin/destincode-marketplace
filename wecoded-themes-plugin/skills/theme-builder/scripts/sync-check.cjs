@@ -123,9 +123,15 @@ const CHECKS = [
 
   // Framed shell. These are the blocks whose absence let the chrome refactor
   // land unnoticed — the entire data-chrome-style axis was previously unguarded.
-  { name: 'Framed shell — chrome-glass',               pattern: '\\n\\.chrome-glass' },
-  { name: 'Framed shell — framed-shell',               pattern: '\\n\\.framed-shell' },
-  { name: 'Framed shell — chrome-wrapper',             pattern: '\\n\\.chrome-wrapper' },
+  //
+  // `(?:\.app-mockup )?` because globals.css styles the real window while the
+  // preview must scope the same rules to its bounded mockup box — an unscoped
+  // .chrome-glass in the preview would paint frame chrome across the whole
+  // editor page. Both spellings are correct in their own file, so the guard
+  // accepts either rather than forcing the preview to be wrong.
+  { name: 'Framed shell — chrome-glass',               pattern: '\\n(?:\\.app-mockup )?\\.chrome-glass' },
+  { name: 'Framed shell — framed-shell',               pattern: '\\n(?:\\.app-mockup )?\\.framed-shell' },
+  { name: 'Framed shell — chrome-wrapper',             pattern: '\\n(?:\\.app-mockup )?\\.chrome-wrapper' },
   // NB: these three only ever appear as direct children of .framed-shell in
   // globals.css — a newline-anchored '\n\.drawer-pane' matches nothing and the
   // check silently skips. Match the real descendant form.

@@ -181,36 +181,35 @@ body {
    [data-panels-blur] / [data-bubble-blur] so non-blur themes don't
    create spurious stacking contexts. See GLASSMORPHISM-REFACTOR-PLAN.md. */
 
-/* Header bar — opacity always, blur gated */
+/* ── Chrome bar surfaces ─────────────────────────────────────────────────────
+   In FRAMED mode the bars have NO background and NO border — globals.css says
+   so in as many words (`/* no background in framed mode *​/` on both
+   .status-bar and .input-bar-container). chrome-glass carries the entire chrome
+   surface behind them.
+
+   This preview used to paint an unconditional panel background plus 1px
+   borders on all three bars, which double-painted over chrome-glass and drew
+   horizontal seams between header / chat / input that the real app does not
+   have. Reported 2026-07-19: "classic just looks like a broken version of
+   minimal with the extra horizontal lines". The bars are now transparent by
+   default and only take a background in floating modes, exactly like the app.
+   ─────────────────────────────────────────────────────────────────────────── */
+
 .header-bar {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
   z-index: 20;
-  background-color: color-mix(in srgb, var(--panel) calc(var(--panels-opacity, 1) * 100%), transparent);
-}
-[data-panels-blur] .header-bar {
-  backdrop-filter: blur(var(--panels-blur)) saturate(1.2);
-  -webkit-backdrop-filter: blur(var(--panels-blur)) saturate(1.2);
+  /* no background in framed mode — chrome-glass provides it */
 }
 
-/* Status bar — opacity always, blur gated */
 .status-bar {
-  background-color: color-mix(in srgb, var(--panel) calc(var(--panels-opacity, 1) * 100%), transparent);
-}
-[data-panels-blur] .status-bar {
-  backdrop-filter: blur(var(--panels-blur)) saturate(1.2);
-  -webkit-backdrop-filter: blur(var(--panels-blur)) saturate(1.2);
+  /* no background in framed mode */
 }
 
-/* Input bar — opacity always, blur gated */
 .input-bar-container {
-  background-color: color-mix(in srgb, var(--panel) calc(var(--panels-opacity, 1) * 100%), transparent);
-}
-[data-panels-blur] .input-bar-container {
-  backdrop-filter: blur(var(--panels-blur)) saturate(1.2);
-  -webkit-backdrop-filter: blur(var(--panels-blur)) saturate(1.2);
+  /* no background in framed mode */
 }
 
 /* Assistant bubbles — opacity always, blur gated */
@@ -337,6 +336,32 @@ body {
   margin: 4px auto;
   border: 1px solid var(--edge-dim);
   background: var(--panel);
+}
+
+/* Floating bar surfaces live HERE, after the layout presets above, so the
+   geometry rule stays the FIRST [data-input-style="floating"] match — the
+   same order globals.css uses (geometry at :1000, background at :639).
+   sync-check compares first-match against first-match, so putting the
+   background block earlier made it report the pill's radius/margin/shadow
+   as missing. */
+/* Floating (full OR partial): chrome-glass is hidden, so each bar carries its
+   own surface and its own blur. */
+[data-chrome-style="floating"] .header-bar,
+[data-input-style="floating"] .header-bar,
+[data-chrome-style="floating"] .status-bar,
+[data-input-style="floating"] .status-bar,
+[data-chrome-style="floating"] .input-bar-container,
+[data-input-style="floating"] .input-bar-container {
+  background-color: color-mix(in srgb, var(--panel) calc(var(--panels-opacity, 1) * 100%), transparent);
+}
+[data-panels-blur][data-chrome-style="floating"] .header-bar,
+[data-panels-blur][data-input-style="floating"] .header-bar,
+[data-panels-blur][data-chrome-style="floating"] .status-bar,
+[data-panels-blur][data-input-style="floating"] .status-bar,
+[data-panels-blur][data-chrome-style="floating"] .input-bar-container,
+[data-panels-blur][data-input-style="floating"] .input-bar-container {
+  backdrop-filter: blur(var(--panels-blur)) saturate(1.2);
+  -webkit-backdrop-filter: blur(var(--panels-blur)) saturate(1.2);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -587,58 +612,60 @@ body {
   flex-shrink: 0;
 }
 
-/* Artifact count badge + game status dot. Both are theme-independent status
-   colors by design (the app hardcodes these), so they do NOT respond to palette
-   changes — same rule as .session-dot and .chip-usage-pct. */
-.app-mockup .header-btn { position: relative; }
-.app-mockup .header-badge {
-  position: absolute;
-  top: -1px;
-  right: -2px;
-  min-width: 11px;
-  height: 11px;
-  padding: 0 2px;
-  border-radius: var(--radius-full, 9999px);
-  background: var(--accent);
-  color: var(--on-accent);
-  font-size: var(--text-4xs, 9px);
-  line-height: 11px;
-  text-align: center;
-  font-weight: 600;
-}
-.app-mockup .header-dot {
-  position: absolute;
-  top: 1px;
-  right: 1px;
-  width: 5px;
-  height: 5px;
-  border-radius: var(--radius-full, 9999px);
-  background: #4ade80;
-}
+/* Header control groups.
 
-/* Window caption buttons. Present on Windows AND Linux (frameless on both);
-   absent on macOS, which has native traffic lights. */
-.app-mockup .caption-buttons {
+   Every right-cluster control in the app lives inside its OWN `bg-inset
+   rounded-md p-0.5` container with the button itself `px-2 py-1
+   rounded-[var(--radius-toggle)]` (HeaderBar.tsx:261, 650, 42). The first pass
+   drew bare buttons with no container, which is why they read as "wrong
+   styling/background" against the live app. */
+.app-mockup .header-pill {
   display: flex;
   align-items: center;
   gap: 1px;
-  margin-left: 4px;
-  padding: 1px;
+  padding: 2px;
   background: var(--inset);
   border-radius: var(--radius-md, 8px);
+  flex-shrink: 0;
 }
-.app-mockup .caption-btn {
-  width: 18px;
-  height: 16px;
+.app-mockup .header-pill-btn {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  gap: 3px;
+  padding: 2px 5px;
   border: none;
   background: transparent;
   color: var(--fg-dim);
   border-radius: var(--radius-toggle);
   cursor: default;
 }
+.app-mockup .header-pill-btn:hover { color: var(--fg-2); }
+.app-mockup .header-pill-btn svg { width: 13px; height: 13px; }
+
+/* Badge and dot are INLINE siblings of the icon (gap-1), not absolutely
+   positioned — the app lays them out in flow inside the button. */
+.app-mockup .header-badge {
+  min-width: 12px;
+  padding: 0 3px;
+  border-radius: var(--radius-full, 9999px);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: var(--text-4xs, 9px);
+  line-height: 1.4;
+  text-align: center;
+}
+.app-mockup .header-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: var(--radius-full, 9999px);
+  /* Theme-independent status colour by design, like .session-dot. */
+  background: #4ade80;
+  flex-shrink: 0;
+}
+
+/* Window caption buttons. Present on Windows AND Linux (frameless on both);
+   absent on macOS, which has native traffic lights. */
+.app-mockup .caption-buttons { margin-left: 3px; }
 .app-mockup .caption-btn svg { width: 9px; height: 9px; }
 .app-mockup .caption-btn:hover { background: var(--panel); color: var(--fg); }
 .app-mockup .caption-close:hover { background: #DD4444; color: #fff; }
@@ -700,8 +727,7 @@ body {
   display: flex;
   align-items: center;
   padding: 10px 14px;
-  background: var(--panel);
-  border-bottom: 1px solid var(--edge);
+  /* No background/border here — see "Chrome bar surfaces" above. */
   font-size: 12px;
   font-weight: 600;
   color: var(--fg);
@@ -773,8 +799,7 @@ body {
 }
 .input-bar-container {
   padding: 4px 8px 6px;
-  background: var(--panel);
-  border-top: 1px solid var(--edge-dim);
+  /* No background/border here — see "Chrome bar surfaces" above. */
   flex-shrink: 0;
 }
 .input-bar-container .input-form {
@@ -821,8 +846,7 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 4px 8px;
-  background: var(--panel);
-  border-top: 1px solid var(--edge-dim);
+  /* No background/border here — see "Chrome bar surfaces" above. */
   font-size: var(--text-3xs, 10px);
   color: var(--fg-muted);
   flex-shrink: 0;

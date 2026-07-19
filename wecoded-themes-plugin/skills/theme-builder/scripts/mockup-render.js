@@ -63,12 +63,20 @@
     compass: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10" stroke-width="1.8"/><polygon points="16.24,7.76 14.12,14.12 7.76,16.24 9.88,9.88" stroke-width="1.5" stroke-linejoin="round" fill="currentColor" opacity="0.3"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/></svg>',
     sendArrow: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M12 5l7 7-7 7"/></svg>',
     // Header additions that shipped after the 2026-04-12 preview sync.
+    // These are transcribed VERBATIM from the app so the preview doesn't invent
+    // its own iconography — the first pass guessed at all three and got the
+    // artifact and gamepad glyphs visibly wrong (reported 2026-07-19).
     folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7a2 2 0 0 1 2-2h3.6l2 2.4H19a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
-    document: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path stroke-linecap="round" stroke-linejoin="round" d="M14 3v5h5"/></svg>',
-    gamepad: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12h4M8 10v4"/><circle cx="15.5" cy="11" r="1" fill="currentColor" stroke="none"/><circle cx="17.5" cy="13.5" r="1" fill="currentColor" stroke="none"/><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 7h9a4.5 4.5 0 0 1 4.5 4.5v1A4.5 4.5 0 0 1 16.5 17c-1.5 0-2-1-4.5-1s-3 1-4.5 1A4.5 4.5 0 0 1 3 12.5v-1A4.5 4.5 0 0 1 7.5 7Z"/></svg>',
-    capMin: '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2.5 6h7"/></svg>',
-    capMax: '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="2.8" y="2.8" width="6.4" height="6.4" rx="1"/></svg>',
-    capClose: '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M3 3l6 6M9 3l-6 6"/></svg>',
+    // Artifact drawer — HeaderBar.tsx:277. A document with TEXT LINES, not a
+    // folded-corner page.
+    document: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>',
+    // Games — Icons.tsx:56. A HANDHELD CONSOLE (body + screen + d-pad + two
+    // buttons), not the modern two-grip controller the first pass drew.
+    gamepad: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="5" y="3" width="14" height="18" rx="2.5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><rect x="8" y="6" width="8" height="5" rx="1" stroke-width="1.4"/><path d="M9 15.5 L11 15.5" stroke-width="2" stroke-linecap="round"/><path d="M10 14.5 L10 16.5" stroke-width="2" stroke-linecap="round"/><path d="M14.5 15 L14.5 15.01" stroke-width="2.8" stroke-linecap="round"/><path d="M16.5 16.5 L16.5 16.51" stroke-width="2.8" stroke-linecap="round"/></svg>',
+    // Caption glyphs — HeaderBar.tsx:43-49, 10x10 viewBox.
+    capMin: '<svg viewBox="0 0 10 10"><rect fill="currentColor" y="5" width="10" height="1"/></svg>',
+    capMax: '<svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1" y="1" width="8" height="8"/></svg>',
+    capClose: '<svg viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.4"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>',
   };
 
   /** Transparent 1x1 GIF — keeps #theme-bg in the DOM when a theme has no
@@ -104,10 +112,10 @@
         </div>`;
 
     const captionButtons = isMac ? '' : `
-        <div class="caption-buttons">
-          <button class="caption-btn" aria-label="Minimize">${SVG.capMin}</button>
-          <button class="caption-btn" aria-label="Maximize">${SVG.capMax}</button>
-          <button class="caption-btn caption-close" aria-label="Close">${SVG.capClose}</button>
+        <div class="header-pill caption-buttons">
+          <button class="header-pill-btn caption-btn" aria-label="Minimize">${SVG.capMin}</button>
+          <button class="header-pill-btn caption-btn" aria-label="Maximize">${SVG.capMax}</button>
+          <button class="header-pill-btn caption-btn caption-close" aria-label="Close">${SVG.capClose}</button>
         </div>`;
 
     const rightPane = drawer ? `
@@ -138,8 +146,16 @@
           </div>
         </div>
         <div class="header-right">
-          <button class="header-btn" aria-label="Artifacts">${SVG.document}<span class="header-badge">3</span></button>
-          <button class="header-btn" aria-label="Games">${SVG.gamepad}<span class="header-dot"></span></button>
+          <div class="header-pill">
+            <button class="header-pill-btn" aria-label="Files in this chat">
+              ${SVG.document}<span class="header-badge">3</span>
+            </button>
+          </div>
+          <div class="header-pill">
+            <button class="header-pill-btn" aria-label="Connect 4">
+              ${SVG.gamepad}<span class="header-dot"></span>
+            </button>
+          </div>
           ${isMac ? viewToggle : ''}
           ${captionButtons}
         </div>

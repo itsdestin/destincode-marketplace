@@ -81,6 +81,45 @@ const CONTENT_DIR = path.join(SESSION_DIR, 'content');
 const STATE_DIR = path.join(SESSION_DIR, 'state');
 let ownerPid = process.env.BRAINSTORM_OWNER_PID ? Number(process.env.BRAINSTORM_OWNER_PID) : null;
 
+// ========== Live preview ==========
+//
+// The Kit page can drive the REAL app's theme by writing the reserved
+// `_preview` theme, which YouCoded watches and hot-switches to. This is the
+// only write this server will ever perform outside its own session dir.
+//
+// PROJECT_DIR comes from an explicit env var set by start-server.sh, NOT by
+// walking `..` up from SESSION_DIR — that would be three levels of implicit
+// coupling to a path layout nobody would think to keep in sync.
+const PROJECT_DIR = process.env.BRAINSTORM_PROJECT_DIR || null;
+const PREVIEW_DIR = PROJECT_DIR ? path.join(PROJECT_DIR, '_preview') : null;
+const PREVIEW_MANIFEST = PREVIEW_DIR ? path.join(PREVIEW_DIR, 'manifest.json') : null;
+const MAX_PREVIEW_BYTES = 256 * 1024; // custom_css can be sizeable
+
+// Writes are only accepted while the page has explicitly enabled live preview.
+let previewEnabled = false;
+
+/**
+ * Remove the preview manifest, reverting the app to the user's own theme.
+ *
+ * Deletes ONLY manifest.json, never the _preview directory. Removing the
+ * manifest is enough for the app to revert (its read fails and it falls back to
+ * the pre-preview theme), while `_preview/assets/` survives — the final pack
+ * build copies wallpapers and mascots out of there, so deleting the folder
+ * would throw away generated art.
+ */
+function teardownPreview(reason) {
+  previewEnabled = false;
+  if (!PREVIEW_MANIFEST) return;
+  try {
+    if (fs.existsSync(PREVIEW_MANIFEST)) {
+      fs.unlinkSync(PREVIEW_MANIFEST);
+      console.log(JSON.stringify({ type: 'preview-torn-down', reason }));
+    }
+  } catch (e) {
+    console.error('preview teardown failed:', e.message);
+  }
+}
+
 const MIME_TYPES = {
   '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript',
   '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg',
@@ -126,8 +165,134 @@ function getNewestScreen() {
 
 // ========== HTTP Request Handler ==========
 
+function sendJson(res, code, obj) {
+  const body = JSON.stringify(obj);
+  res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(body);
+}
+
+/**
+ * Is this request same-origin? Browsers can't forge Origin, and any page in the
+ * user's browser could otherwise POST to a known-ish localhost port. A missing
+ * Origin is allowed because non-browser callers (curl, tests) don't send one and
+ * can't be CSRF'd anyway.
+ */
+function originAllowed(req) {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  const allowed = [
+    `http://${URL_HOST}:${PORT}`,
+    `http://127.0.0.1:${PORT}`,
+    `http://localhost:${PORT}`,
+  ];
+  return allowed.includes(origin);
+}
+
+/**
+ * POST /preview — write the reserved `_preview` manifest.
+ *
+ * Body: { enabled: true, manifest: {...} }  → write
+ *       { enabled: false }                  → tear down
+ *
+ * There is deliberately NO path parameter: the destination is a fixed constant,
+ * so there is nothing to sanitize and no traversal surface. Assets are not
+ * accepted either — a manifest can only ever reference art Claude already wrote,
+ * which keeps the assets-before-manifest ordering rule intact.
+ */
+function handlePreviewPost(req, res) {
+  if (!PREVIEW_DIR) {
+    return sendJson(res, 503, { ok: false, error: 'no preview dir (BRAINSTORM_PROJECT_DIR unset)' });
+  }
+  if (!originAllowed(req)) {
+    return sendJson(res, 403, { ok: false, error: 'bad origin' });
+  }
+  // Reject non-JSON up front: form-encoded is the one content type a
+  // cross-origin page can POST without a preflight.
+  const ctype = String(req.headers['content-type'] || '');
+  if (!ctype.toLowerCase().startsWith('application/json')) {
+    return sendJson(res, 415, { ok: false, error: 'bad content-type' });
+  }
+
+  let size = 0;
+  const chunks = [];
+  let aborted = false;
+
+  req.on('data', (chunk) => {
+    if (aborted) return;
+    size += chunk.length;
+    // Enforce DURING streaming, not after buffering — otherwise the cap does
+    // nothing to protect memory.
+    if (size > MAX_PREVIEW_BYTES) {
+      aborted = true;
+      sendJson(res, 413, { ok: false, error: 'too large' });
+      req.destroy();
+      return;
+    }
+    chunks.push(chunk);
+  });
+
+  req.on('end', () => {
+    if (aborted) return;
+    let body;
+    try {
+      body = JSON.parse(Buffer.concat(chunks).toString('utf-8'));
+    } catch (e) {
+      return sendJson(res, 400, { ok: false, error: 'invalid json' });
+    }
+
+    if (body && body.enabled === false) {
+      teardownPreview('disabled by page');
+      return sendJson(res, 200, { ok: true, enabled: false });
+    }
+
+    const manifest = body && body.manifest;
+    if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
+      return sendJson(res, 400, { ok: false, error: 'missing manifest' });
+    }
+    // The single highest-value check here. The app keys hot-reload off the
+    // DIRECTORY name but resolves the theme by the manifest's internal slug; if
+    // they disagree it silently falls back to the default theme and the whole
+    // feature looks broken for reasons invisible to the user. Historically the
+    // #1 failure mode of this skill — rejecting it here makes it impossible.
+    if (manifest.slug !== '_preview') {
+      return sendJson(res, 400, { ok: false, error: `bad slug "${manifest.slug}" (must be "_preview")` });
+    }
+    if (!manifest.tokens || typeof manifest.tokens !== 'object') {
+      return sendJson(res, 400, { ok: false, error: 'missing tokens' });
+    }
+
+    try {
+      fs.mkdirSync(PREVIEW_DIR, { recursive: true });
+      // Atomic: write to a temp name then rename, so the app's watcher can
+      // never observe a half-written manifest. `.tmp` is outside the watched
+      // extension set, so it produces no spurious reload.
+      const tmp = path.join(PREVIEW_DIR, '.manifest.json.tmp');
+      const json = JSON.stringify(manifest, null, 2);
+      fs.writeFileSync(tmp, json);
+      fs.renameSync(tmp, PREVIEW_MANIFEST);
+      previewEnabled = true;
+      sendJson(res, 200, { ok: true, bytes: Buffer.byteLength(json) });
+    } catch (e) {
+      console.error('preview write failed:', e.message);
+      sendJson(res, 500, { ok: false, error: 'write failed: ' + e.message });
+    }
+  });
+
+  req.on('error', () => { aborted = true; });
+}
+
 function handleRequest(req, res) {
   touchActivity();
+  // Method-gated: a GET /preview still 404s.
+  if (req.method === 'POST' && req.url === '/preview') {
+    // Refuse to expose a write endpoint on a non-loopback bind. --host 0.0.0.0
+    // is a supported flag, and a LAN-reachable endpoint that writes to the
+    // user's theme directory is not worth the niche remote-preview use case.
+    if (HOST !== '127.0.0.1') {
+      return sendJson(res, 403, { ok: false, error: 'preview endpoint disabled on non-loopback bind' });
+    }
+    return handlePreviewPost(req, res);
+  }
   if (req.method === 'GET' && req.url === '/') {
     const screenFile = getNewestScreen();
     let html = screenFile
@@ -164,6 +329,37 @@ function handleRequest(req, res) {
 
 const clients = new Set();
 
+/**
+ * Live preview must not outlive the page that's driving it — closing the tab
+ * should hand the user's app back to their own theme.
+ *
+ * The catch: at the socket layer a RELOAD is indistinguishable from a CLOSE,
+ * and this server broadcasts a reload on every content-dir change, so reloads
+ * are frequent. Tearing down on the first disconnect would kill the preview
+ * constantly. Instead the last disconnect starts a grace timer, which any
+ * reconnecting client cancels. 3s comfortably covers a reload round-trip while
+ * still feeling immediate when a tab really is closed.
+ */
+const PREVIEW_GRACE_MS = 3000;
+let previewGraceTimer = null;
+
+function cancelPreviewGrace() {
+  if (previewGraceTimer) {
+    clearTimeout(previewGraceTimer);
+    previewGraceTimer = null;
+  }
+}
+
+function onClientGone() {
+  if (clients.size > 0 || !previewEnabled) return;
+  cancelPreviewGrace();
+  previewGraceTimer = setTimeout(() => {
+    previewGraceTimer = null;
+    if (clients.size === 0) teardownPreview('page closed');
+  }, PREVIEW_GRACE_MS);
+  previewGraceTimer.unref?.();
+}
+
 function handleUpgrade(req, socket) {
   const key = req.headers['sec-websocket-key'];
   if (!key) { socket.destroy(); return; }
@@ -178,6 +374,7 @@ function handleUpgrade(req, socket) {
 
   let buffer = Buffer.alloc(0);
   clients.add(socket);
+  cancelPreviewGrace(); // a client arrived: that disconnect was a reload, not a close
 
   socket.on('data', (chunk) => {
     buffer = Buffer.concat([buffer, chunk]);
@@ -188,6 +385,7 @@ function handleUpgrade(req, socket) {
       } catch (e) {
         socket.end(encodeFrame(OPCODES.CLOSE, Buffer.alloc(0)));
         clients.delete(socket);
+        onClientGone();
         return;
       }
       if (!result) break;
@@ -200,6 +398,7 @@ function handleUpgrade(req, socket) {
         case OPCODES.CLOSE:
           socket.end(encodeFrame(OPCODES.CLOSE, Buffer.alloc(0)));
           clients.delete(socket);
+          onClientGone();
           return;
         case OPCODES.PING:
           socket.write(encodeFrame(OPCODES.PONG, result.payload));
@@ -211,14 +410,27 @@ function handleUpgrade(req, socket) {
           closeBuf.writeUInt16BE(1003);
           socket.end(encodeFrame(OPCODES.CLOSE, closeBuf));
           clients.delete(socket);
+          onClientGone();
           return;
         }
       }
     }
   });
 
-  socket.on('close', () => clients.delete(socket));
-  socket.on('error', () => clients.delete(socket));
+  /**
+   * 'end' is the one that actually fires when a browser tab closes.
+   *
+   * The peer's FIN half-closes the connection: the server receives 'end' but
+   * never closes its own side, so 'close' does NOT arrive (verified with a
+   * minimal repro — 'end' fired, 'close' never did). Listening only for
+   * 'close'/'error' meant a real tab close was invisible and the live preview
+   * would have outlived the page that was driving it, which is exactly the
+   * failure this teardown exists to prevent. Destroying here also produces the
+   * 'close' event, so the handler below stays as a backstop.
+   */
+  socket.on('end', () => { clients.delete(socket); socket.destroy(); onClientGone(); });
+  socket.on('close', () => { clients.delete(socket); onClientGone(); });
+  socket.on('error', () => { clients.delete(socket); onClientGone(); });
 }
 
 function handleMessage(text) {
@@ -280,7 +492,7 @@ function startServer() {
   // (theme-preview.css, mockup-render.js, helper.js), and when we iterate
   // on them during a session a live reload is much nicer than "save,
   // wait, manually refresh, repeat."
-  const RELOAD_EXTS = /\.(html|css|js)$/i;
+  const RELOAD_EXTS = /\.(html|css|js|json)$/i;
   const watcher = fs.watch(CONTENT_DIR, (eventType, filename) => {
     if (!filename || !RELOAD_EXTS.test(filename)) return;
 
@@ -312,6 +524,8 @@ function startServer() {
 
   function shutdown(reason) {
     console.log(JSON.stringify({ type: 'server-stopped', reason }));
+    // Never leave the user's app stranded on a half-finished theme.
+    teardownPreview('server shutdown: ' + reason);
     const infoFile = path.join(STATE_DIR, 'server-info');
     if (fs.existsSync(infoFile)) fs.unlinkSync(infoFile);
     fs.writeFileSync(
@@ -327,6 +541,18 @@ function startServer() {
     if (!ownerPid) return true;
     try { process.kill(ownerPid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
   }
+
+  // Signals must tear the preview down too. Without these the process dies
+  // immediately on SIGTERM/SIGINT — shutdown() was only ever reachable from the
+  // lifecycle interval below — and a killed server would leave the user's app
+  // stranded on a half-finished theme with nothing left running to revert it.
+  for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
+    process.on(sig, () => shutdown('signal ' + sig));
+  }
+  // Last-resort backstop for exit paths that bypass shutdown() entirely
+  // (uncaught throw, explicit process.exit elsewhere). Only sync work runs in
+  // an 'exit' handler, and unlinkSync qualifies.
+  process.on('exit', () => teardownPreview('process exit'));
 
   // Check every 60s: exit if owner process died or idle for 30 minutes
   const lifecycleCheck = setInterval(() => {

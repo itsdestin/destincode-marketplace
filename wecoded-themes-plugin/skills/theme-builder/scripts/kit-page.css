@@ -1,0 +1,517 @@
+/*
+ * kit-page.css — chrome for the Kit editor page.
+ *
+ * ── ISOLATION, THE ONE RULE THAT MATTERS ───────────────────────────────────
+ * This page is a THEME EDITOR, so it must stay readable no matter how garish
+ * the theme being built is. Three rules keep the two worlds apart:
+ *
+ *   1. The theme under edit writes its variables ONLY onto the mockup element.
+ *      Custom properties inherit downward, so nothing set there can reach page
+ *      chrome. kit-page.js never writes a theme var to :root or <body>.
+ *   2. Page chrome reads a `--ui-*` namespace and uses `k-`-prefixed classes,
+ *      with ZERO name overlap with theme-preview.css. Since chrome never uses
+ *      those class names, theme-preview.css's unscoped rules cannot touch it,
+ *      whatever gets added to that file later.
+ *   3. This file loads AFTER theme-preview.css so it wins the two rules that
+ *      leak (body, #theme-bg) at equal specificity — no !important needed.
+ *
+ * NOT Shadow DOM: custom properties inherit THROUGH shadow boundaries, so it
+ * isolates selectors — the opposite of what's needed — and it would break
+ * mockup-render.js, which queries `document`.
+ *
+ * --ui-* values are lifted verbatim from the app's own creme.json / dark.json
+ * so the editor is literally wearing YouCoded's palettes.
+ */
+
+:root {
+  /* The app is monospace everywhere (globals.css --font-sans AND --font-mono).
+     That is half its visual identity; a system-ui sans reads as "generic web
+     form". Cascadia is a system font, not a webfont, so most users land on the
+     Fira Code / monospace fallback — expected and fine. */
+  --ui-font: 'Cascadia Mono', 'Cascadia Code', 'Fira Code', ui-monospace, monospace;
+
+  --ui-radius-sm: 4px;
+  --ui-radius-md: 8px;
+  --ui-radius-lg: 12px;
+  --ui-radius-xl: 16px;
+  --ui-radius-full: 9999px;
+
+  /* The app's chrome runs 9-13px. */
+  --ui-text-4xs: 9px;
+  --ui-text-3xs: 10px;
+  --ui-text-2xs: 11px;
+  --ui-text-xs: 12px;
+  --ui-text-sm: 13px;
+}
+
+/* creme — default */
+:root,
+:root[data-chrome-scheme="light"] {
+  --ui-canvas: #F0E6D6;
+  --ui-panel: #EBE1D1;
+  --ui-inset: #DDD1BE;
+  --ui-well: #F5ECDE;
+  --ui-accent: #3D3229;
+  --ui-on-accent: #F0E6D6;
+  --ui-fg: #2C2418;
+  --ui-fg-2: #5C4F3E;
+  --ui-fg-dim: #7A6E5D;
+  --ui-fg-muted: #8A7E6E;
+  --ui-fg-faint: #B0A595;
+  --ui-edge: #CBBFAD;
+  --ui-edge-dim: #D4C8B580;
+  --ui-link: #5B4A1E;
+  --ui-destructive: #DD4444;
+  --ui-on-destructive: #FFFFFF;
+  --ui-shadow-strength: 0.2;
+  --ui-scrollbar-thumb: #CBBFB0;
+  --ui-scrollbar-hover: #A89A8A;
+}
+
+/* dark — so a theme can be judged against a dark backdrop too */
+:root[data-chrome-scheme="dark"] {
+  --ui-canvas: #111111;
+  --ui-panel: #191919;
+  --ui-inset: #222222;
+  --ui-well: #1C1C1C;
+  --ui-accent: #D4D4D4;
+  --ui-on-accent: #111111;
+  --ui-fg: #E0E0E0;
+  --ui-fg-2: #B0B0B0;
+  --ui-fg-dim: #999999;
+  --ui-fg-muted: #666666;
+  --ui-fg-faint: #444444;
+  --ui-edge: #2E2E2E;
+  --ui-edge-dim: #37373780;
+  --ui-link: #66AAFF;
+  --ui-destructive: #DD4444;
+  --ui-on-destructive: #FFFFFF;
+  --ui-shadow-strength: 0.35;
+  --ui-scrollbar-thumb: #333333;
+  --ui-scrollbar-hover: #555555;
+}
+
+/* Wins over theme-preview.css's body rule by load order. */
+body {
+  font-family: var(--ui-font);
+  color: var(--ui-fg);
+  background: var(--ui-canvas);
+  line-height: 1.45;
+  margin: 0;
+}
+/* Belt and braces: the page never renders a #theme-bg outside a mockup, but a
+   concept-card paste could bring one in and it would cover the whole viewport. */
+body > #theme-bg { display: none; }
+
+/* ── Layout ──────────────────────────────────────────────────────────────── */
+
+.k-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 44px;
+  padding: 0 16px;
+  background: var(--ui-panel);
+  border-bottom: 1px solid var(--ui-edge);
+}
+.k-title { font-size: var(--ui-text-sm); font-weight: 600; color: var(--ui-fg); }
+.k-title small { display: block; font-size: var(--ui-text-3xs); font-weight: 400; color: var(--ui-fg-dim); }
+.k-topbar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+
+.k-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 460px;
+  gap: 20px;
+  padding: 16px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .k-main { grid-template-columns: minmax(0, 1fr); }
+  .k-canvas { position: static !important; }
+}
+
+/* Canvas stays put while the inspector scrolls — you should never lose sight
+   of the thing you are editing. */
+.k-canvas {
+  position: sticky;
+  top: 60px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+}
+.k-stage-wrap { width: 100%; display: flex; justify-content: center; }
+.k-canvas .app-mockup {
+  box-shadow: 0 8px 32px rgba(0, 0, 0, var(--ui-shadow-strength));
+  border-radius: var(--ui-radius-lg);
+}
+.k-canvas-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+  font-size: var(--ui-text-2xs);
+  color: var(--ui-fg-dim);
+}
+
+.k-inspector {
+  background: var(--ui-panel);
+  border: 1px solid var(--ui-edge);
+  border-radius: var(--ui-radius-xl);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, var(--ui-shadow-strength));
+  overflow: hidden;
+}
+
+/* ── Sections (accordions) ───────────────────────────────────────────────── */
+
+.k-section { border-bottom: 1px solid var(--ui-edge-dim); }
+.k-section:last-child { border-bottom: none; }
+.k-section[data-hidden="true"] { display: none; }
+
+.k-section-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--ui-text-xs);
+  color: var(--ui-fg);
+  text-align: left;
+}
+.k-section-toggle:hover { background: color-mix(in srgb, var(--ui-inset) 50%, transparent); }
+.k-chev {
+  width: 0; height: 0; flex-shrink: 0;
+  border-left: 4px solid var(--ui-fg-dim);
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+  transition: transform 0.15s;
+}
+.k-section-toggle[aria-expanded="true"] .k-chev { transform: rotate(90deg); }
+.k-section-title { font-weight: 600; }
+.k-section-value {
+  margin-left: auto;
+  font-size: var(--ui-text-2xs);
+  color: var(--ui-fg-dim);
+  max-width: 16ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.k-chip {
+  font-size: var(--ui-text-4xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px 5px;
+  border-radius: var(--ui-radius-full);
+  border: 1px solid var(--ui-edge-dim);
+  color: var(--ui-fg-muted);
+  flex-shrink: 0;
+}
+.k-chip--live { color: var(--ui-fg-2); border-color: var(--ui-edge); }
+.k-dirty {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--ui-accent); flex-shrink: 0;
+}
+.k-dirty[hidden] { display: none; }
+
+.k-section-body { padding: 0 12px 14px; display: grid; gap: 12px; }
+.k-section-toggle[aria-expanded="false"] + .k-section-body { display: none; }
+
+/* ── Preset cards ────────────────────────────────────────────────────────── */
+
+.k-preset-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.k-preset {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 9px 10px;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  background: var(--ui-canvas);
+  border: 1px solid var(--ui-edge-dim);
+  border-radius: var(--ui-radius-lg);
+  transition: transform 0.2s, border-color 0.15s, background-color 0.15s;
+}
+.k-preset:hover { border-color: var(--ui-edge); transform: scale(1.02); }
+/* aria-checked doubles as the styling hook so visual and assistive state cannot
+   drift apart. */
+.k-preset[aria-checked="true"] {
+  border-color: var(--ui-accent);
+  background: color-mix(in srgb, var(--ui-accent) 10%, var(--ui-canvas));
+}
+.k-preset-mark {
+  position: absolute; top: 5px; right: 7px;
+  font-size: var(--ui-text-2xs); color: var(--ui-accent); opacity: 0;
+}
+.k-preset[aria-checked="true"] .k-preset-mark { opacity: 1; }
+.k-preset-name { font-size: var(--ui-text-xs); color: var(--ui-fg); font-weight: 500; }
+.k-preset-blurb { font-size: var(--ui-text-3xs); color: var(--ui-fg-dim); line-height: 1.35; }
+.k-preset-swatches { display: flex; gap: 3px; }
+.k-preset-swatches span {
+  width: 17px; height: 17px; border-radius: var(--ui-radius-sm);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.15);
+}
+.k-preset-sample { font-size: 15px; color: var(--ui-fg-2); }
+
+/* ── Disclosure ──────────────────────────────────────────────────────────── */
+
+.k-fine { border-top: 1px dashed var(--ui-edge-dim); padding-top: 10px; }
+.k-fine > summary {
+  cursor: pointer;
+  font-size: var(--ui-text-2xs);
+  color: var(--ui-fg-2);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.k-fine > summary::-webkit-details-marker { display: none; }
+.k-fine > summary::before {
+  content: '';
+  width: 0; height: 0;
+  border-left: 4px solid var(--ui-fg-dim);
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+}
+.k-fine[open] > summary::before { transform: rotate(90deg); }
+.k-count {
+  margin-left: auto;
+  font-size: var(--ui-text-4xs);
+  color: var(--ui-fg-faint);
+}
+.k-fine-body { padding-top: 8px; display: grid; gap: 3px; }
+
+/* ── Token rows ──────────────────────────────────────────────────────────── */
+
+.k-token-row {
+  display: grid;
+  grid-template-columns: 24px 1fr 9ch auto;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 5px;
+  border-radius: var(--ui-radius-md);
+  border-left: 2px solid transparent;
+}
+.k-token-row:hover { background: color-mix(in srgb, var(--ui-inset) 50%, transparent); }
+/* Shape, not just color — this is a tool for people who may not perceive the
+   red/green distinction at all. */
+.k-token-row[data-status="fail"] { border-left-color: var(--ui-destructive); }
+
+.k-token-swatch {
+  position: relative; width: 24px; height: 24px;
+  border-radius: var(--ui-radius-md); overflow: hidden;
+  box-shadow: inset 0 0 0 1px var(--ui-edge); cursor: pointer;
+}
+.k-token-swatch input[type="color"] {
+  position: absolute; inset: -25%; width: 150%; height: 150%;
+  border: 0; padding: 0; background: none; cursor: pointer;
+}
+.k-token-meta { min-width: 0; }
+.k-token-name { font-size: var(--ui-text-2xs); color: var(--ui-fg-2); display: block; }
+.k-token-use { font-size: var(--ui-text-4xs); color: var(--ui-fg-faint); display: block; }
+.k-token-hex {
+  font: inherit; font-size: var(--ui-text-2xs);
+  padding: 3px 4px; text-align: center;
+  color: var(--ui-fg); background: var(--ui-well);
+  border: 1px solid var(--ui-edge-dim); border-radius: var(--ui-radius-md);
+  min-width: 0;
+}
+.k-token-hex:focus-visible { border-color: var(--ui-accent); }
+.k-token-hex[aria-invalid="true"] { border-color: var(--ui-destructive); }
+
+/* ── Sliders ─────────────────────────────────────────────────────────────── */
+
+.k-slider-row {
+  display: grid;
+  grid-template-columns: 11ch 1fr 6ch;
+  align-items: center;
+  gap: 10px;
+}
+.k-slider-label { font-size: var(--ui-text-2xs); color: var(--ui-fg-2); }
+.k-slider-out {
+  font-size: var(--ui-text-2xs); color: var(--ui-fg-dim);
+  text-align: right; font-variant-numeric: tabular-nums;
+}
+.k-slider { -webkit-appearance: none; appearance: none; background: none; height: 18px; width: 100%; }
+.k-slider::-webkit-slider-runnable-track {
+  height: 3px; border-radius: var(--ui-radius-full); background: var(--ui-inset);
+}
+.k-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 13px; height: 13px; margin-top: -5px;
+  border-radius: var(--ui-radius-full); background: var(--ui-accent);
+  box-shadow: 0 0 0 2px var(--ui-panel);
+}
+.k-slider::-moz-range-track {
+  height: 3px; border-radius: var(--ui-radius-full); background: var(--ui-inset);
+}
+.k-slider::-moz-range-thumb {
+  width: 13px; height: 13px; border: 0;
+  border-radius: var(--ui-radius-full); background: var(--ui-accent);
+  box-shadow: 0 0 0 2px var(--ui-panel);
+}
+
+/* ── Toggles, fields, review tiles ───────────────────────────────────────── */
+
+.k-toggle-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.k-toggle-btn {
+  padding: 5px 10px;
+  border-radius: var(--ui-radius-md);
+  border: 1px solid var(--ui-edge-dim);
+  background: transparent;
+  color: var(--ui-fg-dim);
+  font: inherit; font-size: var(--ui-text-2xs);
+  cursor: pointer;
+}
+.k-toggle-btn:hover { background: var(--ui-inset); color: var(--ui-fg); }
+.k-toggle-btn[aria-pressed="true"] {
+  border-color: var(--ui-accent);
+  color: var(--ui-fg);
+  background: color-mix(in srgb, var(--ui-accent) 12%, transparent);
+}
+
+.k-field {
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: var(--ui-radius-md);
+  border: 1px solid var(--ui-edge-dim);
+  background: var(--ui-well);
+  color: var(--ui-fg);
+  font: inherit; font-size: var(--ui-text-2xs);
+  resize: vertical;
+}
+.k-field::placeholder { color: var(--ui-fg-faint); }
+.k-field:focus-visible { outline: none; border-color: var(--ui-accent); }
+.k-label {
+  display: block;
+  font-size: var(--ui-text-4xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ui-fg-dim);
+  margin-bottom: 5px;
+}
+
+.k-review { display: flex; flex-wrap: wrap; gap: 8px; padding-bottom: 4px; }
+.k-review img { max-width: 100%; max-height: 130px; border-radius: var(--ui-radius-md); border: 1px solid var(--ui-edge-dim); }
+.k-tile {
+  width: 60px; height: 60px; padding: 6px;
+  border-radius: var(--ui-radius-md);
+  border: 1px solid var(--ui-edge-dim);
+  background: var(--ui-inset);
+  display: flex; align-items: center; justify-content: center;
+}
+.k-tile img, .k-tile svg { max-width: 100%; max-height: 100%; }
+
+/* ── Contrast readout ────────────────────────────────────────────────────── */
+
+.k-badge {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: var(--ui-text-4xs);
+  font-variant-numeric: tabular-nums;
+  padding: 1px 5px;
+  border-radius: var(--ui-radius-full);
+  border: 1px solid var(--ui-edge-dim);
+  color: var(--ui-fg-dim);
+  white-space: nowrap;
+}
+.k-badge--pass { color: var(--ui-fg-2); }
+.k-badge--fail { color: var(--ui-destructive); border-color: var(--ui-destructive); }
+
+.k-contrast-summary {
+  display: flex; align-items: center; gap: 8px;
+  font-size: var(--ui-text-2xs);
+  padding: 6px 10px;
+  border-radius: var(--ui-radius-md);
+  border: 1px solid var(--ui-edge-dim);
+  background: var(--ui-panel);
+  color: var(--ui-fg-2);
+}
+.k-contrast-summary[data-state="fail"] { border-color: var(--ui-destructive); }
+.k-contrast-list { display: grid; gap: 4px; margin-top: 8px; }
+.k-contrast-item {
+  display: flex; align-items: center; gap: 8px;
+  font-size: var(--ui-text-3xs); color: var(--ui-fg-dim);
+}
+.k-contrast-item strong { color: var(--ui-fg-2); font-weight: 500; }
+
+/* ── Buttons (Button.tsx recipe, --ui-* scoped) ──────────────────────────── */
+
+.k-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  font: inherit; font-weight: 500; cursor: pointer;
+  border: 1px solid transparent;
+  border-radius: var(--ui-radius-lg);
+  font-size: var(--ui-text-xs); padding: 6px 12px;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+/* Hover fades the background TOWARD THE SURFACE, never brightness/opacity —
+   creme's accent is near-black (#3D3229), where brightening is invisible. */
+.k-btn-primary { background: var(--ui-accent); color: var(--ui-on-accent); }
+.k-btn-primary:hover { background: color-mix(in srgb, var(--ui-accent) 88%, var(--ui-panel)); }
+.k-btn-secondary { background: transparent; border-color: var(--ui-edge-dim); color: var(--ui-fg-2); }
+.k-btn-secondary:hover { background: var(--ui-inset); }
+.k-btn-ghost { background: transparent; color: var(--ui-fg-dim); }
+.k-btn-ghost:hover { background: var(--ui-inset); color: var(--ui-fg); }
+.k-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.k-btn-sm { font-size: var(--ui-text-2xs); padding: 4px 9px; }
+
+/* ── Live-preview status ─────────────────────────────────────────────────── */
+
+.k-live {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--ui-text-2xs); color: var(--ui-fg-dim);
+}
+.k-live-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--ui-fg-faint);
+  flex-shrink: 0;
+}
+.k-live[data-state="on"] .k-live-dot { background: #4CAF50; }
+.k-live[data-state="error"] .k-live-dot { background: var(--ui-destructive); }
+.k-live[data-state="off"] .k-live-dot { background: var(--ui-fg-faint); }
+
+/* ── Dock ────────────────────────────────────────────────────────────────── */
+
+.k-dock {
+  position: fixed; inset: auto 0 0 0; z-index: 60;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 10px 18px;
+  background: var(--ui-panel);
+  border-top: 1px solid var(--ui-edge);
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, var(--ui-shadow-strength));
+}
+.k-dock-status { font-size: var(--ui-text-2xs); color: var(--ui-fg-2); }
+.k-dock-sub { display: block; font-size: var(--ui-text-3xs); color: var(--ui-fg-dim); }
+.k-dock-actions { display: flex; gap: 8px; }
+
+/* ── A11y ────────────────────────────────────────────────────────────────── */
+
+:where(button, a, input, textarea, summary, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 2px;
+  border-radius: var(--ui-radius-md);
+}
+.k-sr {
+  position: absolute; width: 1px; height: 1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .k-preset { transition: border-color 0.15s, background-color 0.15s; }
+  .k-preset:hover { transform: none; }
+  .k-chev, .k-fine > summary::before { transition: none; }
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--ui-scrollbar-thumb); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--ui-scrollbar-hover); }

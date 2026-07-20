@@ -104,15 +104,25 @@ All HTML links CSS via `<link rel="stylesheet" href="/files/theme-preview.css">`
 
 ### Step 4: Generate 3 Theme Concepts
 
-**Before designing, read three files in parallel:**
+**Before designing, read two files in parallel:**
 
 ```
 scripts/concept-page-template.html    — page shell to fill in
-scripts/app-mockup-chrome.html        — canonical chrome body (icons + layout)
-scripts/manifest-template.jsonc       — final manifest schema (read NOW, not deferred to Phase 2 — frame tokens in final shape from the start)
+reference/concept-card.md             — tab + panel markup, mockup data-attrs
 ```
 
-Also read `reference/concept-card.md` for card structure and mockup data-attrs.
+Those two are sufficient. Deliberately NOT read here:
+
+- `scripts/app-mockup-chrome.html` (~7KB) — it is the STRUCTURAL SPEC of chrome
+  you must never hand-write. `mockup-render.js` injects all of it at runtime and
+  `concept-card.md` documents the `data-*` contract you actually author. Open it
+  only if you are changing `mockup-render.js` itself.
+- `scripts/manifest-template.jsonc` (~5KB) — concepts carry tokens as inline CSS
+  vars, not manifest JSON. Read it at Step 5 when you seed `_preview`, which is
+  the first time a manifest exists.
+
+That is ~12KB not read before a single design decision, on a path that used to
+read the same `data-mockup` contract from three different files.
 
 **Optional but recommended:** browse `scripts/palettes/*.json` for pre-validated 15-token starter kits. If one matches the vibe, start from it and tweak — faster, less likely to fail contrast.
 
@@ -345,7 +355,7 @@ After the pack is written, refinements go directly to manifest or asset files; a
 ## Phase Checklists
 
 **Before rendering concepts (Phase 1):**
-- [ ] `scripts/concept-page-template.html`, `scripts/app-mockup-chrome.html`, `scripts/manifest-template.jsonc`, and `reference/concept-card.md` have been read (manifest in Phase 1, not deferred)
+- [ ] `scripts/concept-page-template.html` and `reference/concept-card.md` have been read
 - [ ] Each `.app-mockup` uses `data-mockup` + data-* placeholders — NO inlined chrome HTML, NO hand-drawn icons (`mockup-render.js` injects canonical chrome at runtime)
 - [ ] Concepts differ on ≥ 2 of {palette family, layout preset, font character, bubble shape, primary effect}
 - [ ] All asset references use `/files/` prefix; CSS linked not inlined

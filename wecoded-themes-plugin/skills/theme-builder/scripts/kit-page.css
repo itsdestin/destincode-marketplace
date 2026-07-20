@@ -453,7 +453,9 @@ body > #theme-bg { display: none; }
 .k-upload .k-token-use { flex: 1 1 180px; }
 .k-upload-error { color: var(--ui-destructive, #B3261E); }
 
-@media (prefers-reduced-motion: reduce) { .k-upload { transition: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .k-upload, .k-btn, .k-chip { transition: none; }
+}
 .k-tile {
   width: 60px; height: 60px; padding: 6px;
   border-radius: var(--ui-radius-md);

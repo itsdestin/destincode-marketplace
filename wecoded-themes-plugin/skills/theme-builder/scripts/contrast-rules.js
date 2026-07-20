@@ -101,14 +101,73 @@
    *   fg/bg: token names from manifest.tokens
    *   fgAlpha: optional multiplier on the fg color's opacity (for timestamp rules)
    */
+  /**
+   * TEXT RAMP TARGETS — the minimum contrast each text tier must reach against
+   * EVERY surface it can land on. Kept identical to solve-ramp.js::TARGETS; the
+   * solver places the ramp and these rules verify it, so if the two ever
+   * disagree the builder would emit palettes its own gate rejects.
+   *
+   * WHY THIS REPLACED THE OLD HAND-WRITTEN TEXT RULES
+   * -------------------------------------------------
+   * The previous table had SIX text rules total. `fg-muted` appeared exactly
+   * once ('fg-muted/60 on inset', SOFT, 2.0) and `fg-faint` appeared ZERO
+   * times — so the builder's model of the app had three text tiers while the
+   * app actually uses five, across ~466 places that render real content.
+   * Nothing checked `well` as a text background at all, and nothing composited
+   * glass. Measured 2026-07-19, that gap shipped:
+   *   - `fg-muted` on a raised surface failed in 9 of 11 themes
+   *   - `fg-faint` on a raised surface had NEVER passed in any shipped theme
+   *   - composited over its real wallpaper, meadow-mist bottomed out at 1.01
+   *     (identical luminance — literally invisible) while the flat-token audit
+   *     reported 1.24 and CI stayed green
+   * Enumerating text rules by hand is what let those gaps exist, so they are
+   * now GENERATED from this table crossed with every paintable surface.
+   */
+  const TEXT_TARGETS = {
+    fg: 8.0,
+    'fg-2': 5.5,
+    'fg-dim': 4.0,
+    'fg-muted': 3.0,
+    // Decorative only — separators, rules, disabled glyphs. 2.0 makes it visible
+    // as ornament, NOT readable as text. The ~107 sites currently using it as
+    // text must migrate to fg-muted; no palette can serve both roles, because
+    // lifting faint to a readable ratio collapses it into muted.
+    'fg-faint': 2.0,
+  };
+
+  /**
+   * Every surface the app can paint text on. `inset-50` is not a token — it is
+   * what SettingsRow.tsx:27 actually paints (`bg-inset/50` over the panel). It
+   * escapes the protection cascade at globals.css:887 because that rule matches
+   * `.bg-inset` while Tailwind emits `.bg-inset\/50`, a different class. Leaving
+   * it out of the matrix is how the app's worst offender went unmeasured.
+   */
+  const TEXT_SURFACES = ['canvas', 'panel', 'inset', 'well', 'inset-50'];
+
+  /** Text rules, generated. One per (tier, surface) pair — 25 in total. */
+  const TEXT_RULES = Object.entries(TEXT_TARGETS).flatMap(([token, threshold]) =>
+    TEXT_SURFACES.map((surface) => ({
+      name: `${token} on ${surface}`,
+      tier: 'HARD',
+      type: 'contrast',
+      fg: token,
+      bg: surface,
+      threshold,
+      // Resolve bg through the glass composite. Scoped to TEXT rules on purpose:
+      // compositing also pulls panel/inset/well toward each other, which would
+      // make the SURFACE distinction rules stricter for wallpaper themes. That
+      // may well be worth doing, but it is a separate question from text
+      // legibility and the solver cannot auto-fix it — so it is not bundled here.
+      composite: true,
+      description: `${token} must stay legible on ${surface}`,
+    })),
+  );
+
   const RULES = [
+    ...TEXT_RULES,
+
     // ── HARD: UI breaks if these fail ──
-    { name: 'fg on canvas',         tier: 'HARD',    type: 'contrast',    fg: 'fg',        bg: 'canvas',  threshold: 4.5,  description: 'Body text must be readable on main background' },
-    { name: 'fg on inset',          tier: 'HARD',    type: 'contrast',    fg: 'fg',        bg: 'inset',   threshold: 4.5,  description: 'Text in assistant bubbles must be readable' },
-    { name: 'fg on panel',          tier: 'HARD',    type: 'contrast',    fg: 'fg',        bg: 'panel',   threshold: 4.5,  description: 'Text on panels/header/status bar must be readable' },
     { name: 'on-accent on accent',  tier: 'HARD',    type: 'contrast',    fg: 'on-accent', bg: 'accent',  threshold: 4.5,  description: 'User bubble text and active button text must be readable' },
-    { name: 'fg-2 on inset',        tier: 'HARD',    type: 'contrast',    fg: 'fg-2',      bg: 'inset',   threshold: 3.5,  description: 'Session pill labels and secondary text in bubbles' },
-    { name: 'fg-dim on inset',      tier: 'HARD',    type: 'contrast',    fg: 'fg-dim',    bg: 'inset',   threshold: 2.5,  description: 'Tool card labels and collapsed group text inside bubbles' },
 
     // ── SURFACE: Elements disappear if these fail ──
     { name: 'inset vs panel',       tier: 'SURFACE', type: 'distinction', fg: 'inset',     bg: 'panel',   threshold: 1.2,  description: 'Session pills and toggle containers must be visible on header bar' },
@@ -118,11 +177,15 @@
     { name: 'edge-dim on panel',    tier: 'SURFACE', type: 'contrast',    fg: 'edge-dim',  bg: 'panel',   threshold: 1.3,  description: 'Dim borders must be visible (chips, code blocks rely on these)' },
 
     // ── SOFT: Degraded but usable, warn only ──
-    { name: 'fg-2 on canvas',       tier: 'SOFT',    type: 'contrast',    fg: 'fg-2',      bg: 'canvas',  threshold: 3.5,  description: 'Secondary text should be comfortable to read' },
-    { name: 'fg-dim on panel',      tier: 'SOFT',    type: 'contrast',    fg: 'fg-dim',    bg: 'panel',   threshold: 2.0,  description: 'Inactive toggle text and dropdown labels' },
+    // NOTE: 'fg-2 on canvas', 'fg-dim on panel' and 'fg-muted/60 on inset' used
+    // to live here. They are superseded by TEXT_RULES, which covers those pairs
+    // at HARD against every surface rather than one surface at a warn-only tier.
     { name: 'accent vs inset',      tier: 'SOFT',    type: 'contrast',    fg: 'accent',    bg: 'inset',   threshold: 3.0,  description: 'Active toggle button should stand out from its container' },
-    { name: 'fg-muted/60 on inset', tier: 'SOFT',    type: 'contrast',    fg: 'fg-muted',  bg: 'inset',   threshold: 2.0,  fgAlpha: 0.6, description: 'Timestamp text in assistant bubbles' },
     { name: 'on-accent/50 on accent', tier: 'SOFT',  type: 'contrast',    fg: 'on-accent', bg: 'accent',  threshold: 2.0,  fgAlpha: 0.5, description: 'Timestamp text in user bubbles' },
+    // The bubble timestamp at AssistantTurnBubble.tsx:411 renders fg-muted/60 on
+    // the inset bubble. TEXT_RULES checks fg-muted at full opacity; this keeps
+    // the 60% case explicitly covered since alpha is applied at the call site.
+    { name: 'fg-muted/60 on inset', tier: 'SOFT',    type: 'contrast',    fg: 'fg-muted',  bg: 'inset',   threshold: 2.0,  fgAlpha: 0.6, description: 'Timestamp text in assistant bubbles' },
   ];
 
   // ── Evaluation ────────────────────────────────────────────────────────────
@@ -134,9 +197,12 @@
    *
    * @returns {{rule, status:'PASS'|'FAIL'|'SKIP', actual?, threshold, description, tier, reason?}}
    */
-  function evaluateRule(rule, parsed) {
+  function evaluateRule(rule, parsed, surfaces) {
     const fgColor = parsed[rule.fg];
-    const bgColor = parsed[rule.bg];
+    // Text rules resolve their background through the glass composite when the
+    // caller supplied one; everything else measures the flat token. `surfaces`
+    // is optional so existing callers (the Kit page) keep working unchanged.
+    const bgColor = (rule.composite && surfaces && surfaces[rule.bg]) || parsed[rule.bg];
 
     if (!fgColor || !bgColor) {
       return {
@@ -186,7 +252,8 @@
    * @returns {{results:{HARD:[],SURFACE:[],SOFT:[]}, hardFails, surfaceFails,
    *            softWarns, unparsed:string[]}}
    */
-  function evaluate(tokens) {
+  function evaluate(tokens, opts) {
+    const o = opts || {};
     const parsed = {};
     const unparsed = [];
     for (const [key, value] of Object.entries(tokens || {})) {
@@ -195,11 +262,36 @@
       else unparsed.push(key);
     }
 
+    // ── Resolve EFFECTIVE surfaces ──
+    // Wallpaper themes paint panel/inset/well translucently over the background
+    // image, so the colour under the text is a composite, not the token. Judging
+    // the flat token is pessimistic on light wallpapers and optimistic on dark
+    // ones — and the dark case is how meadow-mist shipped at a real 1.01 while
+    // every audit in the workspace reported 1.24 and CI stayed green.
+    //
+    // `wallpaperAvg` is the average colour of the pack's background image; the
+    // caller computes it (check-contrast.cjs reads the file). Without it we fall
+    // back to flat tokens and flag that the check was not glass-aware.
+    const wallpaper = o.wallpaperAvg ? parseHex(o.wallpaperAvg) : null;
+    const panelsOpacity = typeof o.panelsOpacity === 'number' ? o.panelsOpacity : 1;
+    const glassAware = !!wallpaper && panelsOpacity < 1;
+
+    const surfaces = {};
+    if (parsed.canvas) surfaces.canvas = parsed.canvas;
+    for (const k of ['panel', 'inset', 'well']) {
+      if (!parsed[k]) continue;
+      surfaces[k] = glassAware ? alphaComposite(parsed[k], wallpaper, panelsOpacity) : parsed[k];
+    }
+    // SettingsRow's `bg-inset/50` stack — a real painted surface with no token.
+    if (parsed.inset && surfaces.panel) {
+      surfaces['inset-50'] = alphaComposite(parsed.inset, surfaces.panel, 0.5);
+    }
+
     const results = { HARD: [], SURFACE: [], SOFT: [] };
     let hardFails = 0, surfaceFails = 0, softWarns = 0;
 
     for (const rule of RULES) {
-      const r = evaluateRule(rule, parsed);
+      const r = evaluateRule(rule, parsed, surfaces);
       results[rule.tier].push(r);
       if (r.status === 'FAIL') {
         if (rule.tier === 'HARD') hardFails++;
@@ -208,7 +300,7 @@
       }
     }
 
-    return { results, hardFails, surfaceFails, softWarns, unparsed, parsed };
+    return { results, hardFails, surfaceFails, softWarns, unparsed, parsed, surfaces, glassAware };
   }
 
   /**
@@ -226,6 +318,8 @@
     luminanceRatio,
     alphaComposite,
     RULES,
+    TEXT_TARGETS,
+    TEXT_SURFACES,
     evaluateRule,
     evaluate,
     rulesForToken,

@@ -17,8 +17,66 @@
 const fs = require('fs');
 const path = require('path');
 const { evaluate } = require('./contrast-rules.js');
+const { solveTheme } = require('./solve-ramp.js');
 
-function main() {
+/**
+ * Average colour of a wallpaper, as #RRGGBB.
+ *
+ * Wallpaper themes paint panel/inset/well translucently over the image, so the
+ * colour under the text is a composite — not the token. Auditing the flat token
+ * is how meadow-mist shipped painting text at a real 1.01 contrast while every
+ * audit reported 1.24. The average is computed ONCE here and written to
+ * `background.average-color` so the CI audits (which have no image dependency)
+ * can be glass-aware too.
+ *
+ * Downscaled + blurred first so a few saturated pixels don't skew the mean; the
+ * app's own blur does much the same thing to what sits behind a panel.
+ */
+async function computeAverageColor(imagePath) {
+  const sharp = require('sharp');
+  const { data } = await sharp(imagePath)
+    .resize(160, 90, { fit: 'fill' })
+    .blur(5)
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  let r = 0, g = 0, b = 0;
+  const px = data.length / 3;
+  for (let i = 0; i < data.length; i += 3) { r += data[i]; g += data[i + 1]; b += data[i + 2]; }
+  return (
+    '#' +
+    [r / px, g / px, b / px]
+      .map((v) => Math.round(v).toString(16).padStart(2, '0'))
+      .join('')
+      .toUpperCase()
+  );
+}
+
+/** Glass options for a manifest: what the app will actually paint text on. */
+async function glassOptsFor(manifest, manifestPath) {
+  const bg = manifest.background || {};
+  const panelsOpacity = typeof bg['panels-opacity'] === 'number' ? bg['panels-opacity'] : 1;
+  if (panelsOpacity >= 1) return { panelsOpacity: 1, wallpaperAvg: null, computed: null };
+
+  if (bg['average-color']) {
+    return { panelsOpacity, wallpaperAvg: bg['average-color'], computed: null };
+  }
+  // Compute it — and hand it back so the caller can persist it.
+  if (bg.type === 'image' && bg.value && manifestPath) {
+    const img = path.resolve(path.dirname(manifestPath), bg.value);
+    if (fs.existsSync(img)) {
+      try {
+        const avg = await computeAverageColor(img);
+        return { panelsOpacity, wallpaperAvg: avg, computed: avg };
+      } catch (err) {
+        console.error(`  ⚠ Could not read wallpaper for average-color: ${err.message}`);
+      }
+    }
+  }
+  return { panelsOpacity, wallpaperAvg: null, computed: null };
+}
+
+async function main() {
   // Accept two input modes:
   //   1. node check-contrast.cjs <path-to-manifest.json>
   //      (legacy — full manifest with a `.tokens` wrapper)
@@ -29,8 +87,14 @@ function main() {
   const args = process.argv.slice(2);
   let manifestPath = null;
   let tokensJsonSrc = null;
+  // --fix solves the palette instead of only grading it, and writes it back.
+  // This is the flow the skill uses: authors pick the creative inputs, the
+  // solver places the ramp. Hand-picking every token then grading it afterwards
+  // is what shipped unreadable text in all 11 themes.
+  let fix = false;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--tokens-json') { tokensJsonSrc = args[++i]; }
+    else if (args[i] === '--fix') { fix = true; }
     else if (!manifestPath) { manifestPath = args[i]; }
   }
 
@@ -69,7 +133,38 @@ function main() {
     process.exit(2);
   }
 
-  const { results, hardFails, surfaceFails, softWarns, unparsed } = evaluate(tokens);
+  const glass = await glassOptsFor(manifest, manifestPath && path.resolve(manifestPath));
+
+  if (fix) {
+    if (!manifestPath) {
+      console.error('--fix needs a manifest path (it writes the solved tokens back).');
+      process.exit(2);
+    }
+    const solved = solveTheme(tokens, glass);
+    if (solved.unsatisfiable.length) {
+      // No lightness works for these tiers — the SURFACES are the problem, not
+      // the text colour. Say so instead of writing a ramp that cannot pass.
+      console.error(`\n  ✗ Unsatisfiable: ${solved.unsatisfiable.join(', ')}`);
+      console.error('    No text lightness clears the target against these surfaces.');
+      console.error('    Tighten the surface ladder (canvas/panel/inset/well) and re-run.\n');
+      process.exit(1);
+    }
+    let raw2 = fs.readFileSync(path.resolve(manifestPath), 'utf-8');
+    for (const key of solved.changed) {
+      const re = new RegExp(`("${key}"\\s*:\\s*)"[^"]*"`);
+      raw2 = raw2.replace(re, `$1"${solved.tokens[key]}"`);
+    }
+    if (glass.computed && !/"average-color"/.test(raw2)) {
+      raw2 = raw2.replace(/("background":\s*\{)/, `$1\n    "average-color": "${glass.computed}",`);
+    }
+    JSON.parse(raw2); // fail loudly rather than writing broken JSON
+    fs.writeFileSync(path.resolve(manifestPath), raw2);
+    console.log(`\n  ✓ Solved ${solved.changed.length} token(s): ${solved.changed.join(', ')}`);
+    if (glass.computed) console.log(`  ✓ Wrote background.average-color: ${glass.computed}`);
+    Object.assign(tokens, solved.tokens);
+  }
+
+  const { results, hardFails, surfaceFails, softWarns, unparsed, glassAware } = evaluate(tokens, glass);
 
   // Report unparseable tokens before the table, matching prior behaviour.
   for (const key of unparsed) {
@@ -80,6 +175,11 @@ function main() {
 
   const themeName = manifest.name || manifest.slug || 'Unknown';
   console.log(`\n  Theme: ${themeName}`);
+  if (glassAware) {
+    console.log(`  Glass: panels at ${Math.round(glass.panelsOpacity * 100)}% over ${glass.wallpaperAvg}`);
+  } else if (glass.panelsOpacity < 1) {
+    console.log('  ⚠ Translucent panels but no wallpaper average — measured FLAT (understates real ratios)');
+  }
   console.log(`  ${'─'.repeat(50)}\n`);
 
   for (const tier of ['HARD', 'SURFACE', 'SOFT']) {
@@ -124,4 +224,7 @@ function main() {
   process.exit(totalFails > 0 ? 1 : 0);
 }
 
-main();
+main().catch((err) => {
+  console.error(err);
+  process.exit(2);
+});

@@ -167,14 +167,16 @@
       .then(({ ok, j }) => {
         if (ok && j.ok) {
           lastWritten = body;
-          setLiveStatus('on', 'live in app');
+          setLiveStatus('on', 'applying to your app');
         } else {
           // Surface it. A silent failure here is why "the app just ignored it"
           // has historically been so hard to diagnose.
-          setLiveStatus('error', j.error || 'write failed');
+          setLiveStatus('error', (j.error || 'write failed') + ' — edits are safe here');
         }
       })
-      .catch((e) => setLiveStatus('error', e.message))
+      // Keep the REAL reason verbatim — a guessed cause sends the user
+      // chasing the wrong thing — but say what it means for their work.
+      .catch((e) => setLiveStatus('error', `can't reach your app (${e.message}) — edits are safe here`))
       .finally(() => {
         inFlight = false;
         if (queuedAfterFlight) { queuedAfterFlight = false; flushPreviewWrite(); }
@@ -185,15 +187,18 @@
     liveEnabled = on;
     const btn = document.getElementById('k-live-toggle');
     if (btn) btn.setAttribute('aria-pressed', String(on));
+    // The dock names where changes landed, so it has to follow this toggle —
+    // otherwise it keeps saying "preview only" after live is switched on.
+    updateDock();
     try { sessionStorage.setItem('kit-live', on ? '1' : '0'); } catch (e) { /* ignore */ }
 
     if (on) {
-      setLiveStatus('on', 'enabling…');
+      setLiveStatus('on', 'connecting…');
       lastWritten = '';
       schedulePreviewWrite(true);
     } else {
       lastWritten = '';
-      setLiveStatus('off', 'preview off');
+      setLiveStatus('off', 'not applied to your app');
       fetch('/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -417,8 +422,8 @@
             <span class="k-sr">${t} colour picker</span>
           </label>
           <span class="k-token-meta">
-            <span class="k-token-name">${t}</span>
-            <span class="k-token-use">${esc(KS.TOKEN_USES[t] || '')}</span>
+            <span class="k-token-name">${esc(KS.TOKEN_USES[t] || t)}</span>
+            <span class="k-token-use">${t}</span>
           </span>
           <input class="k-token-hex" type="text" value="${esc(v)}" spellcheck="false"
                  autocapitalize="off" aria-label="${t} hex value" data-token-hex="${t}">
@@ -466,11 +471,18 @@
   function updateDock() {
     const n = dirty.size;
     const st = document.getElementById('k-dock-status');
-    if (st) {
-      st.innerHTML = n === 0
-        ? 'No changes yet<span class="k-dock-sub">Presets and sliders apply instantly</span>'
-        : `${n} section${n === 1 ? '' : 's'} changed<span class="k-dock-sub">Applied live · Build when ready</span>`;
+    if (!st) return;
+    if (n === 0) {
+      st.innerHTML = 'No changes yet<span class="k-dock-sub">Presets and sliders apply instantly</span>';
+      return;
     }
+    // Say where the changes actually landed. This used to read "Applied live"
+    // unconditionally, which claimed the user's real app had been updated even
+    // when the toggle was off and nothing had been written to it.
+    const sub = liveEnabled
+      ? 'Showing here and in your app · Build when ready'
+      : 'Showing in this preview only · Build when ready';
+    st.innerHTML = `${n} section${n === 1 ? '' : 's'} changed<span class="k-dock-sub">${sub}</span>`;
   }
 
   // ── Persistence ───────────────────────────────────────────────────────────
@@ -742,6 +754,7 @@
         document.documentElement.dataset.chromeScheme = cur;
         try { localStorage.setItem('kit-chrome-scheme', cur); } catch (e) { /* ignore */ }
         scheme.textContent = cur === 'dark' ? '☾ dark' : '☀ light';
+        scheme.setAttribute('aria-pressed', String(cur === 'dark'));
       });
     }
 
@@ -776,8 +789,15 @@
         const kind = btn.dataset.request;
         const note = (document.querySelector(`[data-note="${kind}"]`) || {}).value || '';
         send({ type: 'kit-request', kind, note, state });
-        btn.textContent = 'Sent — Claude is on it';
+        // Re-enable rather than disabling forever: the first result is often
+        // not the wanted one, and a permanently dead button leaves the user
+        // with no way to refine. Everything else on the page keeps working
+        // while Claude is busy, so say so.
+        const label = btn.dataset.label || btn.textContent;
+        btn.dataset.label = label;
+        btn.textContent = 'Asked Claude — keep editing meanwhile';
         btn.disabled = true;
+        setTimeout(() => { btn.disabled = false; btn.textContent = 'Ask again'; }, 8000);
       });
     });
 
@@ -785,13 +805,26 @@
     if (build) {
       build.addEventListener('click', () => {
         const blocking = Number(build.dataset.blocking || 0);
-        if (blocking > 0 && build.dataset.confirmed !== '1') {
+        // Two-step ALWAYS, not only when contrast fails. This finishes the
+        // theme and ends the Kit session; it sits in a fixed dock as the only
+        // primary-coloured button on the page, so a stray click was one click
+        // from over.
+        if (build.dataset.confirmed !== '1') {
           build.dataset.confirmed = '1';
-          build.textContent = `${blocking} contrast issue${blocking === 1 ? '' : 's'} — build anyway?`;
+          build.textContent = blocking > 0
+            ? `${blocking} contrast issue${blocking === 1 ? '' : 's'} — finish anyway?`
+            : 'Finish and build this theme?';
+          // A confirmation the user ignores must not stay armed forever.
+          setTimeout(() => {
+            if (build.dataset.confirmed === '1' && !build.disabled) {
+              build.dataset.confirmed = '0';
+              build.textContent = 'Build theme pack';
+            }
+          }, 6000);
           return;
         }
         send({ type: 'kit-build', state });
-        build.textContent = 'Building — return to the terminal';
+        build.textContent = 'Building — go back to your chat with Claude';
         build.disabled = true;
       });
     }
@@ -879,8 +912,12 @@
       if (restoredFromSession) {
         const bar = document.getElementById('k-restored');
         const btn = document.getElementById('k-restored-reset');
+        const keep = document.getElementById('k-restored-keep');
         if (bar) bar.hidden = false;
         if (btn) btn.addEventListener('click', resetToClaudeState);
+        // Dismissing is a real choice, not just ignoring the bar — otherwise it
+        // sits there for the rest of the session implying something is wrong.
+        if (keep) keep.addEventListener('click', () => { if (bar) bar.hidden = true; });
       }
 
       const loading = document.getElementById('k-loading');
@@ -890,7 +927,11 @@
       // so auto-writing would clobber Claude's edits and build a reload loop.
       try {
         const wasLive = sessionStorage.getItem('kit-live') === '1';
-        setLiveStatus(wasLive ? 'off' : 'off', wasLive ? 'preview off (re-enable)' : 'preview off');
+        // Always 'off' on load — a previous session's live state does NOT carry
+        // over, because nothing has been written to the app yet this page-life.
+        setLiveStatus('off', wasLive
+          ? 'not applied to your app (turn it back on?)'
+          : 'not applied to your app');
       } catch (e) { /* ignore */ }
     }).catch((err) => {
       // Surface the REAL error. This catch wraps the whole boot sequence, not
@@ -1042,7 +1083,10 @@
       if (s) {
         document.documentElement.dataset.chromeScheme = s;
         const btn = document.getElementById('k-scheme');
-        if (btn) btn.textContent = s === 'dark' ? '☾ dark' : '☀ light';
+        if (btn) {
+          btn.textContent = s === 'dark' ? '☾ dark' : '☀ light';
+          btn.setAttribute('aria-pressed', String(s === 'dark'));
+        }
       }
     } catch (e) { /* ignore */ }
   }

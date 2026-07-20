@@ -43,22 +43,25 @@
     <small id="k-theme-slug"></small>
   </div>
   <div class="k-topbar-right">
-    <button class="k-btn k-btn-ghost k-btn-sm" id="k-scheme"
-            title="Editor chrome only — does not change your theme">☀ light</button>
-    <span class="k-live" id="k-live" data-state="off">
+    <button class="k-btn k-btn-ghost k-btn-sm" id="k-scheme" aria-pressed="false"
+            title="Editor appearance only — does not change your theme">☀ light</button>
+    <span class="k-live" id="k-live" data-state="off" aria-live="polite">
       <span class="k-live-dot" aria-hidden="true"></span>
-      <span class="k-live-text">preview off</span>
+      <span class="k-live-text">not applied to your app</span>
     </span>
     <button class="k-btn k-btn-secondary k-btn-sm" id="k-live-toggle" aria-pressed="false"
-            title="Write this theme to the app's live preview as you edit">Live in app</button>
+            title="Also apply these changes to your real YouCoded app as you edit. The preview here updates either way.">Also apply to my app</button>
   </div>
 </div>
 
 <!-- Shown only when this tab's saved edits won over the file Claude wrote.
      Without it, a regenerated wallpaper or palette silently fails to appear. -->
 <div class="k-restored" id="k-restored" hidden>
-  <span>Showing your edits from this tab, not Claude's latest version.</span>
-  <button class="k-btn k-btn-ghost k-btn-sm" id="k-restored-reset">Reset to Claude's version</button>
+  <span><strong>Claude finished a newer version while you were editing.</strong>
+        You're seeing your own edits — Claude's changes (a new wallpaper, palette
+        or mascots) are not shown.</span>
+  <button class="k-btn k-btn-ghost k-btn-sm" id="k-restored-reset">Show Claude's new version</button>
+  <button class="k-btn k-btn-ghost k-btn-sm" id="k-restored-keep">Keep mine</button>
 </div>
 
 <div class="k-main">
@@ -92,7 +95,7 @@
     <div class="k-contrast-summary" id="k-contrast" data-state="pass" role="status">
       <span class="k-contrast-text">checking…</span>
       <button class="k-btn k-btn-ghost k-btn-sm" id="k-nudge" style="margin-left:auto"
-              title="Adjust failing colours until they pass">Nudge to pass</button>
+              title="Lighten or darken the flagged colours until the text is easy to read">Fix these for me</button>
     </div>
     <div class="k-contrast-list" id="k-contrast-list"></div>
   </div>
@@ -107,7 +110,7 @@
           <span class="k-chev" aria-hidden="true"></span>
           <span class="k-section-title">Palette</span>
           <span class="k-section-value" data-value></span>
-          <span class="k-chip k-chip--live">live</span>
+          <span class="k-chip k-chip--live" title="Changes here show up immediately">instant</span>
           <span class="k-dirty" hidden><span class="k-sr">modified</span></span>
         </button>
       </h2>
@@ -135,9 +138,9 @@
       <h2 style="margin:0">
         <button class="k-section-toggle" aria-expanded="false">
           <span class="k-chev" aria-hidden="true"></span>
-          <span class="k-section-title">Chrome &amp; Layout</span>
+          <span class="k-section-title">Window &amp; Layout</span>
           <span class="k-section-value" data-value></span>
-          <span class="k-chip k-chip--live">live</span>
+          <span class="k-chip k-chip--live" title="Changes here show up immediately">instant</span>
           <span class="k-dirty" hidden><span class="k-sr">modified</span></span>
         </button>
       </h2>
@@ -177,7 +180,7 @@
           <span class="k-chev" aria-hidden="true"></span>
           <span class="k-section-title">Bubbles</span>
           <span class="k-section-value" data-value></span>
-          <span class="k-chip k-chip--live">live</span>
+          <span class="k-chip k-chip--live" title="Changes here show up immediately">instant</span>
           <span class="k-dirty" hidden><span class="k-sr">modified</span></span>
         </button>
       </h2>
@@ -210,7 +213,7 @@
           <span class="k-chev" aria-hidden="true"></span>
           <span class="k-section-title">Typography</span>
           <span class="k-section-value" data-value></span>
-          <span class="k-chip k-chip--live">live</span>
+          <span class="k-chip k-chip--live" title="Changes here show up immediately">instant</span>
           <span class="k-dirty" hidden><span class="k-sr">modified</span></span>
         </button>
       </h2>
@@ -231,7 +234,7 @@
           <span class="k-chev" aria-hidden="true"></span>
           <span class="k-section-title">Effects</span>
           <span class="k-section-value" data-value></span>
-          <span class="k-chip k-chip--live">live</span>
+          <span class="k-chip k-chip--live" title="Changes here show up immediately">instant</span>
           <span class="k-dirty" hidden><span class="k-sr">modified</span></span>
         </button>
       </h2>
@@ -287,7 +290,7 @@
           <span class="k-chev" aria-hidden="true"></span>
           <span class="k-section-title">Wallpaper</span>
           <span class="k-section-value" data-value>current</span>
-          <span class="k-chip">↻ rebuild</span>
+          <span class="k-chip k-chip--live" title="Uploading your own image is instant; asking Claude for a new one is not">upload is instant</span>
         </button>
       </h2>
       <div class="k-section-body">
@@ -318,7 +321,7 @@
           <span class="k-chev" aria-hidden="true"></span>
           <span class="k-section-title">Mascots</span>
           <span class="k-section-value" data-value></span>
-          <span class="k-chip">↻ rebuild</span>
+          <span class="k-chip" title="Claude has to make this for you — ask below">needs Claude</span>
         </button>
       </h2>
       <div class="k-section-body">
@@ -339,7 +342,7 @@
           <span class="k-chev" aria-hidden="true"></span>
           <span class="k-section-title">Icons &amp; Details</span>
           <span class="k-section-value" data-value></span>
-          <span class="k-chip">↻ rebuild</span>
+          <span class="k-chip" title="Claude has to make this for you — ask below">needs Claude</span>
         </button>
       </h2>
       <div class="k-section-body">

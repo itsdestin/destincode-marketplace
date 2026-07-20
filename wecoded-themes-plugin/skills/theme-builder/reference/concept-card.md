@@ -1,6 +1,6 @@
 # Concept Card Structure
 
-Read this file before generating the 3 concept cards in Phase 1. It documents the `.concept-card` shape, the `.app-mockup` data-attribute contract, and glassmorphism var conventions.
+Read this file before generating the 3 concept cards in Phase 1. It documents the `.c-tab` / `.c-card` shapes, the `.app-mockup` data-attribute contract, and glassmorphism var conventions.
 
 ## Per-card structure
 
@@ -52,8 +52,10 @@ Its matching tab carries the identifying detail:
 Emit one tab per concept into `.c-tabs`, in the same A/B/C order as the panels —
 `data-choice` is what pairs them.
 
-Selection state is handled by the page (`aria-checked` on `.c-card`) — don't
-hand-write a selected class.
+Selection state is handled by the page: it sets `aria-selected` on the tabs and
+toggles `hidden` on the panels. Don't hand-write a selected class, and don't set
+`aria-selected`/`hidden` yourself beyond the initial `aria-selected="false"` +
+`hidden` shown above — the page corrects both on load.
 
 ## App mockup (data-attribute contract)
 
@@ -87,7 +89,7 @@ For reference, the full chrome template mockup-render injects lives at `scripts/
 
 ## CSS conventions
 
-Use the exact CSS classes from `theme-preview.css`. All colors from CSS custom properties — never hardcode hex in element styles except on the scoping `.concept-card` div.
+Use the exact CSS classes from `theme-preview.css`. All colors from CSS custom properties — never hardcode hex in element styles except on the scoping `.c-card` div (and the tab's own swatch spans, which are literal colour chips).
 
 ## Wallpaper compositing
 

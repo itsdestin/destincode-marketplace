@@ -133,6 +133,19 @@
       <div id="theme-bg" style="background-image: url('${esc(d.wallpaper || BLANK_PX)}');"></div>
       <div id="theme-pattern"></div>
       <canvas class="theme-particles" aria-hidden="true"></canvas>
+      <!-- Blur strips. These exist ONLY because backdrop-filter cannot survive a
+           clip-path: a clipped element is a backdrop root, so nothing inside
+           .chrome-glass (or .chrome-glass itself) has a backdrop left to blur.
+           Measured in Chrome: blur works with no clip anywhere, and not at all
+           with a clip on the element, an ancestor, or a pseudo-element's parent.
+           So the blur lives on four UNCLIPPED rectangles butted around the chat
+           cutout, and .chrome-glass keeps the tint and the rounded corners.
+           They carry no tint of their own — stacking two would re-create the
+           double-tint bug that made framed chrome look opaque. -->
+      <div class="chrome-blur${drawer ? ' chrome-blur--drawer-open' : ''}" aria-hidden="true">
+        <div class="chrome-blur-t"></div><div class="chrome-blur-b"></div>
+        <div class="chrome-blur-l"></div><div class="chrome-blur-r"></div>
+      </div>
       <div class="chrome-glass${drawer ? ' chrome-glass--drawer-open' : ''}"></div>
       <div class="header-bar">
         <button class="header-btn" aria-label="Settings">${SVG.gear}</button>

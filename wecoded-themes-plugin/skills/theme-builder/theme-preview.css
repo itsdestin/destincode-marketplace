@@ -546,40 +546,71 @@ body {
   background-color: color-mix(in srgb, var(--panel) calc(var(--panels-opacity, 1) * 100%), transparent);
 }
 
-/* The blur lives on a ::after CHILD, not on .chrome-glass itself.
+/* ─── Framed-mode blur ──────────────────────────────────────────────────────
  *
- * WHY (verified empirically, Chrome 150, software raster): clip-path on an
- * element correctly clips its BACKGROUND — the donut renders exactly right —
- * but does NOT clip that same element's backdrop-filter. Putting the blur
- * directly on .chrome-glass frosts the entire mockup, including the chat
- * cutout, so the wallpaper that is supposed to stay sharp goes blurry and the
- * chat bubbles blur along with it.
+ * MEASURED IN CHROME (four-case isolation test, 2026-07-19), because the
+ * previous note here asserted the opposite and was wrong:
  *
- * A clip-path on an ANCESTOR does constrain a descendant's painted output,
- * filter included. So the parent keeps the shape and the child carries the
- * glass. The tint is repeated here because ::after paints above the parent's
- * background, which would otherwise be hidden behind the blur result.
+ *     no clip anywhere ................. blur WORKS
+ *     blur on the clipped element ...... no blur
+ *     blur on a child of the clipped el. no blur
+ *     blur on ::after of the clipped el. no blur   <- what this file used to do
  *
- * The app applies backdrop-filter straight to .chrome-glass (theme-engine.ts)
- * and looks correct in Electron's GPU-composited path; this preview has to be
- * right in whatever browser the author opens, so it takes the robust route. */
-.app-mockup[data-panels-blur] .chrome-glass::after {
-  content: '';
+ * A clip-path makes the element a BACKDROP ROOT, so anything at or inside it
+ * has no backdrop left to sample. Framed chrome therefore rendered tint-only
+ * while floating chrome — plain unclipped bars — blurred correctly. Reported
+ * 2026-07-19: "panel blur works in floating, not at all in classic".
+ *
+ * So the blur cannot live under the donut. It lives on four UNCLIPPED strips
+ * butted around the chat cutout, using the same geometry vars the polygon does
+ * (left/top/right/bottom of the cutout = frame-edge / top-chrome-height /
+ * chat-right-offset / bottom-chrome-height). They BUTT rather than overlap, so
+ * no pixel is blurred twice.
+ *
+ * Known, accepted imperfection: the strips have square corners where the
+ * cutout has rounded ones, so a few px at each chat corner get frosted. Blur
+ * has no shape detail of its own and the tinted donut sits on top with the
+ * correct radius, so this is invisible at normal sizes — and far cheaper than
+ * rebuilding the frame out of four separately-tinted pieces, which is exactly
+ * the seam-prone design the app abandoned. */
+.app-mockup .chrome-blur { display: none; }
+.app-mockup[data-panels-blur] .chrome-blur {
+  display: block;
   position: absolute;
   inset: 0;
-  background-color: color-mix(in srgb, var(--panel) calc(var(--panels-opacity, 1) * 100%), transparent);
+  z-index: 9;              /* directly beneath .chrome-glass (z-10) */
+  pointer-events: none;
+  --chat-right-offset: var(--frame-edge);
+}
+.app-mockup .chrome-blur--drawer-open {
+  --chat-right-offset: calc(var(--frame-edge) * 2 + var(--right-pane-width, 168px));
+}
+.app-mockup[data-panels-blur] .chrome-blur > div {
+  position: absolute;
   backdrop-filter: blur(var(--panels-blur, 0)) saturate(1.2);
   -webkit-backdrop-filter: blur(var(--panels-blur, 0)) saturate(1.2);
 }
-/* The ::after carries the tint in blur mode, so the parent must NOT paint it
-   too. Stacking both meant framed chrome composited 0.78 over 0.78 — an
-   effective ~0.95 — while floating (one layer, one tint) stayed at 0.78. Same
-   declared opacity, visibly different result: framed read dense and flat,
-   floating read much more transparent, and switching between them looked like
-   the glass settings had changed when nothing had. Reported 2026-07-19. */
-.app-mockup[data-panels-blur] .chrome-glass {
-  background-color: transparent;
+/* Full-width bands above and below the cutout… */
+.app-mockup[data-panels-blur] .chrome-blur-t {
+  top: 0; left: 0; right: 0; height: var(--top-chrome-height, 3rem);
 }
+.app-mockup[data-panels-blur] .chrome-blur-b {
+  bottom: 0; left: 0; right: 0; height: var(--bottom-chrome-height, 5rem);
+}
+/* …and the two side rails between them, so nothing overlaps. */
+.app-mockup[data-panels-blur] .chrome-blur-l {
+  top: var(--top-chrome-height, 3rem); bottom: var(--bottom-chrome-height, 5rem);
+  left: 0; width: var(--frame-edge);
+}
+.app-mockup[data-panels-blur] .chrome-blur-r {
+  top: var(--top-chrome-height, 3rem); bottom: var(--bottom-chrome-height, 5rem);
+  right: 0; width: var(--chat-right-offset);
+}
+
+/* The donut keeps the tint — one tint layer only. Stacking a second one meant
+   framed chrome composited 0.78 over 0.78 (~0.95 effective) while floating
+   stayed at 0.78: same declared opacity, visibly denser result. Reported
+   2026-07-19. */
 
 /* Right pane open: the cutout's right edge shifts left to leave room for
    outer edge + pane + divider. Shape is otherwise identical. */
@@ -727,13 +758,13 @@ body {
 /* App mockup structure.
    `background: var(--canvas)` is the fallback behind #theme-bg so concepts
    without a wallpaper (solid/gradient themes) still have a canvas base. */
-/* 16:10-ish aspect (closer to a real desktop window). Desktop DestinCode
-   windows sit around 1.5–1.6 ratio, which better reflects what the user
-   will see in the app than the old phone-ish 420×520 (0.81). */
+/* 16:9 — a maximized YouCoded window on a normal display. 16:10 read visibly
+   narrow once the concept page started showing one large preview instead of
+   three small cards. */
 .app-mockup {
   width: 100%;
   max-width: 560px;
-  aspect-ratio: 16 / 10;
+  aspect-ratio: 16 / 9;
   border-radius: var(--radius-lg, 12px);
   overflow: hidden;
   display: flex;

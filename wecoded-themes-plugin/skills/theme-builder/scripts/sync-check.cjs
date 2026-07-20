@@ -109,7 +109,7 @@ const preview = readFile(PREVIEW);
  * `values: true` means the declared VALUES must match, not just the property
  * names. Reserve it for rules whose exact formula is the contract (the glass
  * color-mix expressions, the layout-preset geometry). Structural rules where the
- * preview legitimately simplifies — it's a bounded 16/10 mockup box, not a
+ * preview legitimately simplifies — it's a bounded 16/9 mockup box, not a
  * full-bleed window — stay property-name-only, otherwise every check would cry
  * wolf and the whole guard gets ignored again.
  */

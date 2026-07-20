@@ -21,24 +21,36 @@ stay legible against all of them.
             --fg-dim:#7C7058; --fg-muted:#9C9179; --fg-faint:#C4BCA5;
             --edge:#A8987A; --edge-dim:#A8987A80; --shadow-strength:0.2;
             --font-sans:'Space Grotesk', sans-serif;">
-  <div class="c-card-head">
-    <span class="c-letter" aria-hidden="true">A</span>
-    <div>
-      <div class="c-card-title">Ivory Schematic</div>
-      <div class="c-card-vibe">Light museum-card minimalism — blueprint on cream paper.</div>
-    </div>
-  </div>
-  <div class="c-swatches" aria-hidden="true">
-    <span style="background:#EDE8DD"></span><span style="background:#E3DCCB"></span>
-    <span style="background:#D2C6AA"></span><span style="background:#7A5A2E"></span>
-    <span style="background:#2B2318"></span>
-  </div>
-  <div class="c-tags"><span>light</span><span>bordered bubbles</span><span>Space Grotesk</span></div>
   <div class="c-stage">
     <div class="app-mockup" data-mockup …></div>
   </div>
 </div>
 ```
+
+**The panel contains the stage and nothing else.** No title, vibe line, swatch
+row, or tag row — the tab above already shows all of that, and repeating it
+inside the panel costs ~100px of preview height for zero information. The
+preview is the entire point of the panel.
+
+Its matching tab carries the identifying detail:
+
+```html
+<button class="c-tab" role="tab" data-choice="A" aria-selected="false">
+  <span class="c-tab-head">
+    <span class="c-letter" aria-hidden="true">A</span>
+    <span class="c-card-title c-tab-title">Ivory Schematic</span>
+  </span>
+  <span class="c-swatches" aria-hidden="true">
+    <span style="background:#EDE8DD"></span><span style="background:#E3DCCB"></span>
+    <span style="background:#D2C6AA"></span><span style="background:#7A5A2E"></span>
+    <span style="background:#2B2318"></span>
+  </span>
+  <span class="c-card-vibe">Image wallpaper · ember particles · vignette</span>
+</button>
+```
+
+Emit one tab per concept into `.c-tabs`, in the same A/B/C order as the panels —
+`data-choice` is what pairs them.
 
 Selection state is handled by the page (`aria-checked` on `.c-card`) — don't
 hand-write a selected class.

@@ -1,721 +1,372 @@
 <!DOCTYPE html>
-<html>
+<html data-chrome-scheme="light">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Theme Kit</title>
+  <!-- Order matters: kit-page.css must load SECOND so it wins the two rules
+       theme-preview.css applies page-wide (body, #theme-bg) at equal
+       specificity, without needing !important. -->
   <link rel="stylesheet" href="/files/theme-preview.css">
-  <!-- GOOGLE_FONTS — Claude inserts <link> tag(s) here for the current font -->
-  <style>
-    /* Kit page — lives outside theme-preview.css scope so it reads
-       cleanly regardless of which theme is loaded in the mockup above. */
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    :root {
-      --kit-bg: #161616;
-      --kit-surface: #1f1f1f;
-      --kit-surface-2: #292929;
-      --kit-border: #363636;
-      --kit-border-strong: #4a4a4a;
-      --kit-text: #e6e6e6;
-      --kit-text-dim: #8a8a8a;
-      --kit-accent: #6c8aff;
-      --kit-accent-hover: #8aa2ff;
-      --kit-green: #4ade80;
-      --kit-amber: #fbbf24;
-    }
-
-    body {
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-      background: var(--kit-bg);
-      color: var(--kit-text);
-      line-height: 1.45;
-      padding-bottom: 96px;
-    }
-
-    /* ── Header ── */
-    .kit-header {
-      padding: 20px 32px 12px;
-      border-bottom: 1px solid var(--kit-border);
-    }
-    .kit-header h1 { font-size: 18px; font-weight: 700; }
-    .kit-header p { font-size: 13px; color: var(--kit-text-dim); margin-top: 2px; }
-
-    /* ── Live preview ── */
-    .kit-preview {
-      padding: 20px 32px;
-      background: var(--kit-surface);
-      border-bottom: 1px solid var(--kit-border);
-    }
-    .kit-preview .app-mockup {
-      max-width: 900px;
-      margin: 0 auto;
-      border-radius: 12px;
-      overflow: hidden;
-      border: 1px solid var(--kit-border);
-    }
-    .kit-preview-label {
-      text-align: center;
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--kit-text-dim);
-      margin-bottom: 10px;
-    }
-
-    /* ── Columns ── */
-    .kit-columns {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-      gap: 20px;
-      padding: 24px 32px;
-      max-width: 1600px;
-      margin: 0 auto;
-    }
-
-    .kit-column {
-      background: var(--kit-surface);
-      border: 1px solid var(--kit-border);
-      border-radius: 12px;
-      overflow: hidden;
-    }
-    .kit-column[data-hidden="true"] { display: none; }
-
-    .kit-col-header {
-      padding: 14px 18px;
-      background: var(--kit-surface-2);
-      border-bottom: 1px solid var(--kit-border);
-    }
-    .kit-col-name {
-      font-size: 11px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--kit-text-dim);
-    }
-    .kit-col-current {
-      font-size: 15px;
-      font-weight: 600;
-      margin-top: 4px;
-    }
-    .kit-col-current .blurb {
-      display: block;
-      font-size: 12px;
-      font-weight: 400;
-      color: var(--kit-text-dim);
-      margin-top: 2px;
-    }
-
-    .kit-col-body { padding: 14px; }
-
-    /* Pills row (Keep / preset / preset) */
-    .kit-preset-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-    .kit-preset-card {
-      flex: 1 1 140px;
-      min-width: 140px;
-      padding: 10px 12px;
-      border-radius: 8px;
-      border: 1px solid var(--kit-border);
-      background: var(--kit-bg);
-      cursor: pointer;
-      transition: border-color 0.15s, background 0.15s;
-      font-size: 13px;
-      text-align: left;
-    }
-    .kit-preset-card:hover { border-color: var(--kit-border-strong); }
-    .kit-preset-card.pending {
-      border-color: var(--kit-accent);
-      background: rgba(108, 138, 255, 0.1);
-    }
-    .kit-preset-card.current {
-      border-color: var(--kit-green);
-      background: rgba(74, 222, 128, 0.08);
-    }
-    .kit-preset-card .name { font-weight: 600; font-size: 13px; }
-    .kit-preset-card .blurb {
-      display: block;
-      font-size: 11px;
-      color: var(--kit-text-dim);
-      margin-top: 3px;
-      line-height: 1.3;
-    }
-    .kit-preset-card .swatches {
-      display: flex;
-      gap: 3px;
-      margin-top: 6px;
-    }
-    .kit-preset-card .swatches span {
-      width: 16px; height: 16px; border-radius: 3px;
-      border: 1px solid rgba(255,255,255,0.1);
-    }
-    .kit-preset-card .font-sample {
-      margin-top: 4px;
-      font-size: 16px;
-    }
-
-    /* Review-kind column (wallpaper / mascots / icons) */
-    .kit-review-assets {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      padding: 8px 0 12px;
-    }
-    .kit-review-assets img {
-      max-width: 100%;
-      max-height: 160px;
-      border-radius: 6px;
-      border: 1px solid var(--kit-border);
-      object-fit: cover;
-    }
-    .kit-review-assets .asset-tile {
-      width: 72px;
-      height: 72px;
-      padding: 8px;
-      border-radius: 8px;
-      border: 1px solid var(--kit-border);
-      background: var(--kit-surface-2);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .kit-review-assets .asset-tile img,
-    .kit-review-assets .asset-tile svg {
-      max-width: 100%;
-      max-height: 100%;
-    }
-
-    .kit-toggle-row {
-      display: flex;
-      gap: 6px;
-      margin-top: 4px;
-    }
-    .kit-toggle-btn {
-      padding: 6px 12px;
-      border-radius: 6px;
-      border: 1px solid var(--kit-border);
-      background: transparent;
-      color: var(--kit-text-dim);
-      font-size: 12px;
-      cursor: pointer;
-    }
-    .kit-toggle-btn.active-keep {
-      border-color: var(--kit-green);
-      color: var(--kit-green);
-      background: rgba(74, 222, 128, 0.08);
-    }
-    .kit-toggle-btn.active-change {
-      border-color: var(--kit-amber);
-      color: var(--kit-amber);
-      background: rgba(251, 191, 36, 0.08);
-    }
-
-    /* Effects column (mixed radio + checkbox) */
-    .kit-effects-group { margin-bottom: 10px; }
-    .kit-effects-group-label {
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--kit-text-dim);
-      margin-bottom: 6px;
-    }
-
-    /* Override textarea */
-    .kit-override {
-      margin-top: 12px;
-      border-top: 1px dashed var(--kit-border);
-      padding-top: 10px;
-    }
-    .kit-override-label {
-      display: block;
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--kit-text-dim);
-      margin-bottom: 6px;
-    }
-    .kit-override textarea {
-      width: 100%;
-      min-height: 52px;
-      padding: 8px 10px;
-      border-radius: 6px;
-      border: 1px solid var(--kit-border);
-      background: var(--kit-bg);
-      color: var(--kit-text);
-      font-family: inherit;
-      font-size: 12px;
-      resize: vertical;
-    }
-    .kit-override textarea::placeholder { color: var(--kit-text-dim); }
-    .kit-override textarea:focus {
-      outline: none;
-      border-color: var(--kit-accent);
-    }
-    .kit-override.pending textarea {
-      border-color: var(--kit-accent);
-      background: rgba(108, 138, 255, 0.06);
-    }
-
-    /* Sticky submit bar */
-    .kit-submit-bar {
-      position: fixed;
-      bottom: 0; left: 0; right: 0;
-      padding: 14px 32px;
-      background: var(--kit-surface);
-      border-top: 1px solid var(--kit-border);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      z-index: 100;
-    }
-    .kit-submit-status { font-size: 13px; color: var(--kit-text-dim); }
-    .kit-submit-actions { display: flex; gap: 10px; }
-    .kit-btn {
-      padding: 10px 22px;
-      border-radius: 8px;
-      border: none;
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-    }
-    .kit-btn-primary {
-      background: var(--kit-accent);
-      color: #fff;
-    }
-    .kit-btn-primary:hover { background: var(--kit-accent-hover); }
-    .kit-btn-ghost {
-      background: transparent;
-      border: 1px solid var(--kit-border-strong);
-      color: var(--kit-text);
-    }
-    .kit-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-  </style>
+  <link rel="stylesheet" href="/files/kit-page.css">
 </head>
 <body>
 
-  <div class="kit-header">
-    <h1><!-- THEME_NAME --></h1>
-    <p>Swap any column — pick a preset, describe a custom, or keep it. Hit Rebuild to see changes.</p>
+<!--
+  COPY THIS FILE VERBATIM. There are no placeholders to fill.
+
+  Everything renders at load time from two JSON files:
+    /files/kit-state.json    — written by Claude, ~1.2KB (manifest + _kit)
+    /files/kit-presets.json  — static preset catalogue
+
+  The previous version had ~20 HTML comment placeholders that Claude refilled on
+  every tweak, so changing one colour meant retyping a 24KB document. If you find
+  yourself editing markup here to change a theme, something has gone wrong —
+  change kit-state.json instead.
+-->
+
+<!-- Shown until kit-state.json exists AND parses. The server may serve this page
+     before Claude has finished writing the state + assets, and a half-written
+     file parses as invalid JSON — both cases used to surface as a broken empty
+     page. The boot loop polls instead. -->
+<div class="k-loading" id="k-loading">
+  <div class="k-loading-card">
+    <div class="k-spinner" aria-hidden="true"></div>
+    <div class="k-loading-title">Preparing your theme kit…</div>
+    <div class="k-loading-sub" id="k-loading-sub">Waiting for Claude to finish generating palettes and assets.</div>
+  </div>
+</div>
+
+<div class="k-topbar">
+  <div class="k-title">
+    <span id="k-theme-name">Loading…</span>
+    <small id="k-theme-slug"></small>
+  </div>
+  <div class="k-topbar-right">
+    <button class="k-btn k-btn-ghost k-btn-sm" id="k-scheme"
+            title="Editor chrome only — does not change your theme">☀ light</button>
+    <span class="k-live" id="k-live" data-state="off">
+      <span class="k-live-dot" aria-hidden="true"></span>
+      <span class="k-live-text">preview off</span>
+    </span>
+    <button class="k-btn k-btn-secondary k-btn-sm" id="k-live-toggle" aria-pressed="false"
+            title="Write this theme to the app's live preview as you edit">Live in app</button>
+  </div>
+</div>
+
+<!-- Shown only when this tab's saved edits won over the file Claude wrote.
+     Without it, a regenerated wallpaper or palette silently fails to appear. -->
+<div class="k-restored" id="k-restored" hidden>
+  <span>Showing your edits from this tab, not Claude's latest version.</span>
+  <button class="k-btn k-btn-ghost k-btn-sm" id="k-restored-reset">Reset to Claude's version</button>
+</div>
+
+<div class="k-main">
+
+  <!-- ── Canvas ─────────────────────────────────────────────────────────── -->
+  <div class="k-canvas">
+    <div class="k-stage-wrap">
+      <!--
+        data-fx lists all three effects so their divs always exist; intensity is
+        driven purely by the opacity vars. mockup-render seeds #theme-bg with a
+        transparent GIF so it is always present. Both exist so live edits are
+        variable changes, never DOM surgery.
+      -->
+      <div class="app-mockup"
+           data-mockup
+           data-fx="vignette noise scanlines"
+           data-session="main"
+           data-session-color="green"
+           data-model="Opus 1M"
+           data-permission="NORMAL"
+           data-usage="23"
+           data-asst1="This preview updates as you edit — no rebuild needed."
+           data-user="Try a palette or drag a slider."
+           data-asst2="Every change here is instant."
+           data-tool-card="read · manifest.json"></div>
+    </div>
+
+    <!-- No duplicate pane controls here: the mockup's OWN artifact and games
+         buttons drive the right pane, so the preview behaves like the app. -->
+
+    <div class="k-contrast-summary" id="k-contrast" data-state="pass" role="status">
+      <span class="k-contrast-text">checking…</span>
+      <button class="k-btn k-btn-ghost k-btn-sm" id="k-nudge" style="margin-left:auto"
+              title="Adjust failing colours until they pass">Nudge to pass</button>
+    </div>
+    <div class="k-contrast-list" id="k-contrast-list"></div>
   </div>
 
-  <!-- ═══════════════════════════════════════════════════════════════════
-       Live preview
-       Claude writes the .app-mockup with all current data-* attrs + glass
-       vars. mockup-render.js injects chrome; the mockup reads theme tokens
-       from inline style on the wrapping div (same pattern as concepts).
-       ═══════════════════════════════════════════════════════════════════ -->
-  <div class="kit-preview">
-    <div class="kit-preview-label">Live Preview (also hot-loaded in the app)</div>
-    <!-- CURRENT_MOCKUP — Claude inserts the <div class="app-mockup" data-mockup …>
-         here with the current concept's tokens, data-attrs, and glass vars.
-         Exact same shape used in concept cards. -->
-  </div>
-
-  <!-- ═══════════════════════════════════════════════════════════════════
-       Columns grid
-       Each .kit-column has data-column and data-kind. Current value is
-       set via data-current. Preset-kind columns render their card list
-       from /files/kit-presets.json at load time. Review-kind columns
-       carry their own asset previews (filled by Claude).
-       ═══════════════════════════════════════════════════════════════════ -->
-  <div class="kit-columns">
+  <!-- ── Inspector ──────────────────────────────────────────────────────── -->
+  <div class="k-inspector">
 
     <!-- Palette -->
-    <section class="kit-column" data-column="palette" data-kind="preset" data-current="<!-- CURRENT_PALETTE_ID -->">
-      <div class="kit-col-header">
-        <div class="kit-col-name">Palette</div>
-        <div class="kit-col-current">
-          <!-- CURRENT_PALETTE_NAME -->
-          <span class="blurb"><!-- CURRENT_PALETTE_BLURB --></span>
-        </div>
-      </div>
-      <div class="kit-col-body">
-        <div class="kit-preset-row" data-preset-row></div>
-        <div class="kit-override">
-          <label class="kit-override-label">Or describe a custom palette</label>
-          <textarea data-override placeholder="e.g. muted teal on warm cream, vintage postcard feel"></textarea>
-        </div>
-      </div>
-    </section>
-
-    <!-- Chrome / Layout -->
-    <section class="kit-column" data-column="chrome" data-kind="preset" data-current="<!-- CURRENT_CHROME_ID -->">
-      <div class="kit-col-header">
-        <div class="kit-col-name">Chrome &amp; Layout</div>
-        <div class="kit-col-current">
-          <!-- CURRENT_CHROME_NAME -->
-          <span class="blurb"><!-- CURRENT_CHROME_BLURB --></span>
-        </div>
-      </div>
-      <div class="kit-col-body">
-        <div class="kit-preset-row" data-preset-row></div>
-        <div class="kit-override">
-          <label class="kit-override-label">Or describe a custom layout</label>
-          <textarea data-override placeholder="e.g. header and input both floating, status bar collapsed to a single dot"></textarea>
-        </div>
+    <section class="k-section" data-column="palette" data-kind="preset">
+      <h2 style="margin:0">
+        <button class="k-section-toggle" aria-expanded="true">
+          <span class="k-chev" aria-hidden="true"></span>
+          <span class="k-section-title">Palette</span>
+          <span class="k-section-value" data-value></span>
+          <span class="k-chip k-chip--live">live</span>
+          <span class="k-dirty" hidden><span class="k-sr">modified</span></span>
+        </button>
+      </h2>
+      <div class="k-section-body">
+        <!-- Palettes Claude derived from THIS theme's wallpaper. These lead
+             because a stock palette rarely suits a specific image. -->
+        <div class="k-preset-grid" data-preset-row data-palette-source="custom"
+             role="radiogroup" aria-label="Palette"></div>
+        <details class="k-fine" id="k-stock-palettes">
+          <summary>Show stock palettes<span class="k-count">6</span></summary>
+          <div class="k-fine-body">
+            <div class="k-preset-grid" data-preset-row data-palette-source="stock"
+                 role="radiogroup" aria-label="Stock palette"></div>
+          </div>
+        </details>
+        <details class="k-fine">
+          <summary>Fine-tune colours<span class="k-count">15 tokens</span></summary>
+          <div class="k-fine-body" id="k-token-list"></div>
+        </details>
       </div>
     </section>
 
-    <!-- Bubble -->
-    <section class="kit-column" data-column="bubble" data-kind="preset" data-current="<!-- CURRENT_BUBBLE_ID -->">
-      <div class="kit-col-header">
-        <div class="kit-col-name">Bubble Style</div>
-        <div class="kit-col-current">
-          <!-- CURRENT_BUBBLE_NAME -->
-          <span class="blurb"><!-- CURRENT_BUBBLE_BLURB --></span>
-        </div>
-      </div>
-      <div class="kit-col-body">
-        <div class="kit-preset-row" data-preset-row></div>
-        <div class="kit-override">
-          <label class="kit-override-label">Or describe a custom bubble</label>
-          <textarea data-override placeholder="e.g. hand-drawn speech balloon with a tail, crayon outline"></textarea>
-        </div>
+    <!-- Chrome & layout -->
+    <section class="k-section" data-column="chrome" data-kind="preset">
+      <h2 style="margin:0">
+        <button class="k-section-toggle" aria-expanded="false">
+          <span class="k-chev" aria-hidden="true"></span>
+          <span class="k-section-title">Chrome &amp; Layout</span>
+          <span class="k-section-value" data-value></span>
+          <span class="k-chip k-chip--live">live</span>
+          <span class="k-dirty" hidden><span class="k-sr">modified</span></span>
+        </button>
+      </h2>
+      <div class="k-section-body">
+        <div class="k-preset-grid" data-preset-row role="radiogroup" aria-label="Chrome preset"></div>
+        <details class="k-fine">
+          <summary>Glass &amp; rounding</summary>
+          <div class="k-fine-body">
+            <div class="k-slider-row">
+              <label class="k-slider-label" for="s-pb">Panel blur</label>
+              <input class="k-slider" id="s-pb" type="range" min="0" max="40" step="1"
+                     data-path="background.panels-blur" data-unit="px" data-unit-word="pixels" data-int="1" data-section="chrome">
+              <output class="k-slider-out" for="s-pb"></output>
+            </div>
+            <div class="k-slider-row">
+              <label class="k-slider-label" for="s-po">Panel opacity</label>
+              <input class="k-slider" id="s-po" type="range" min="0.3" max="1" step="0.01"
+                     data-path="background.panels-opacity" data-unit-word="opacity" data-section="chrome">
+              <output class="k-slider-out" for="s-po"></output>
+            </div>
+            <div class="k-slider-row">
+              <label class="k-slider-label" for="s-rm">Corner radius</label>
+              <input class="k-slider" id="s-rm" type="range" min="0" max="24" step="1"
+                     data-path="shape.radius-md" data-unit="px" data-unit-word="pixels" data-int="1"
+                     data-radius-scale="1" data-store-unit="px" data-section="chrome">
+              <output class="k-slider-out" for="s-rm"></output>
+            </div>
+          </div>
+        </details>
       </div>
     </section>
 
-    <!-- Font -->
-    <section class="kit-column" data-column="font" data-kind="preset" data-current="<!-- CURRENT_FONT_ID -->">
-      <div class="kit-col-header">
-        <div class="kit-col-name">Font</div>
-        <div class="kit-col-current">
-          <!-- CURRENT_FONT_NAME -->
-          <span class="blurb"><!-- CURRENT_FONT_BLURB --></span>
-        </div>
+    <!-- Bubbles -->
+    <section class="k-section" data-column="bubble" data-kind="preset">
+      <h2 style="margin:0">
+        <button class="k-section-toggle" aria-expanded="false">
+          <span class="k-chev" aria-hidden="true"></span>
+          <span class="k-section-title">Bubbles</span>
+          <span class="k-section-value" data-value></span>
+          <span class="k-chip k-chip--live">live</span>
+          <span class="k-dirty" hidden><span class="k-sr">modified</span></span>
+        </button>
+      </h2>
+      <div class="k-section-body">
+        <div class="k-preset-grid" data-preset-row role="radiogroup" aria-label="Bubble preset"></div>
+        <details class="k-fine">
+          <summary>Bubble glass</summary>
+          <div class="k-fine-body">
+            <div class="k-slider-row">
+              <label class="k-slider-label" for="s-bb">Bubble blur</label>
+              <input class="k-slider" id="s-bb" type="range" min="0" max="40" step="1"
+                     data-path="background.bubble-blur" data-unit="px" data-unit-word="pixels" data-int="1" data-section="bubble">
+              <output class="k-slider-out" for="s-bb"></output>
+            </div>
+            <div class="k-slider-row">
+              <label class="k-slider-label" for="s-bo">Bubble opacity</label>
+              <input class="k-slider" id="s-bo" type="range" min="0.3" max="1" step="0.01"
+                     data-path="background.bubble-opacity" data-unit-word="opacity" data-section="bubble">
+              <output class="k-slider-out" for="s-bo"></output>
+            </div>
+          </div>
+        </details>
       </div>
-      <div class="kit-col-body">
-        <div class="kit-preset-row" data-preset-row></div>
-        <div class="kit-override">
-          <label class="kit-override-label">Or name any Google Font</label>
-          <textarea data-override placeholder="e.g. IBM Plex Mono; or 'something with a Victorian feel'"></textarea>
+    </section>
+
+    <!-- Typography -->
+    <section class="k-section" data-column="font" data-kind="preset">
+      <h2 style="margin:0">
+        <button class="k-section-toggle" aria-expanded="false">
+          <span class="k-chev" aria-hidden="true"></span>
+          <span class="k-section-title">Typography</span>
+          <span class="k-section-value" data-value></span>
+          <span class="k-chip k-chip--live">live</span>
+          <span class="k-dirty" hidden><span class="k-sr">modified</span></span>
+        </button>
+      </h2>
+      <div class="k-section-body">
+        <div class="k-preset-grid" data-preset-row role="radiogroup" aria-label="Font preset"></div>
+        <div>
+          <label class="k-label" for="k-font-custom">Or any Google Font by name</label>
+          <input class="k-field" id="k-font-custom" type="text" placeholder="e.g. IBM Plex Mono" spellcheck="false">
+          <div class="k-token-use" id="k-font-note"></div>
         </div>
       </div>
     </section>
 
     <!-- Effects -->
-    <section class="kit-column" data-column="effects" data-kind="effects"
-             data-current-particles="<!-- CURRENT_PARTICLES_ID -->"
-             data-current-overlays="<!-- CURRENT_OVERLAYS_CSV -->">
-      <div class="kit-col-header">
-        <div class="kit-col-name">Effects</div>
-        <div class="kit-col-current">
-          <!-- CURRENT_EFFECTS_SUMMARY -->
-          <span class="blurb">Particles + overlay textures</span>
-        </div>
-      </div>
-      <div class="kit-col-body">
-        <div class="kit-effects-group">
-          <div class="kit-effects-group-label">Particles (pick one)</div>
-          <div class="kit-preset-row" data-preset-row data-effects-group="particles"></div>
-        </div>
-        <div class="kit-effects-group">
-          <div class="kit-effects-group-label">Overlays (toggle any)</div>
-          <div class="kit-preset-row" data-preset-row data-effects-group="overlays"></div>
-        </div>
-        <div class="kit-override">
-          <label class="kit-override-label">Custom effect idea</label>
-          <textarea data-override placeholder="e.g. slow pulse glow behind user bubbles; animated border on the header"></textarea>
-        </div>
-      </div>
-    </section>
-
-    <!-- Wallpaper (review-kind) -->
-    <section class="kit-column" data-column="wallpaper" data-kind="review">
-      <div class="kit-col-header">
-        <div class="kit-col-name">Wallpaper</div>
-        <div class="kit-col-current">Current hero image</div>
-      </div>
-      <div class="kit-col-body">
-        <div class="kit-review-assets">
-          <!-- WALLPAPER_PREVIEW — Claude inserts <img src="/files/wallpaper.ext"> -->
-        </div>
-        <div class="kit-toggle-row">
-          <button class="kit-toggle-btn active-keep" data-toggle="keep">Keep</button>
-          <button class="kit-toggle-btn" data-toggle="change">Change</button>
-        </div>
-        <div class="kit-override">
-          <label class="kit-override-label">Describe what to change</label>
-          <textarea data-override placeholder="e.g. brighter / wider shot / no people in frame"></textarea>
-        </div>
-      </div>
-    </section>
-
-    <!-- Mascots (review-kind) -->
-    <section class="kit-column" data-column="mascots" data-kind="review">
-      <div class="kit-col-header">
-        <div class="kit-col-name">Mascot Crossovers</div>
-        <div class="kit-col-current">4 expression variants</div>
-      </div>
-      <div class="kit-col-body">
-        <div class="kit-review-assets">
-          <!-- MASCOT_PREVIEW — Claude inserts 4 .asset-tile divs with mascot SVGs -->
-        </div>
-        <div class="kit-toggle-row">
-          <button class="kit-toggle-btn active-keep" data-toggle="keep">Keep</button>
-          <button class="kit-toggle-btn" data-toggle="change">Change</button>
-        </div>
-        <div class="kit-override">
-          <label class="kit-override-label">Describe what to change</label>
-          <textarea data-override placeholder="e.g. add a wizard hat / change the color to green / no mascot at all"></textarea>
-        </div>
-      </div>
-    </section>
-
-    <!-- Icons (review-kind) -->
-    <section class="kit-column" data-column="icons" data-kind="review">
-      <div class="kit-col-header">
-        <div class="kit-col-name">Icons &amp; Details</div>
-        <div class="kit-col-current">Icon overrides, cursor, scrollbar</div>
-      </div>
-      <div class="kit-col-body">
-        <div class="kit-review-assets">
-          <!-- ICONS_PREVIEW — Claude inserts icon tiles + cursor + scrollbar strip -->
-        </div>
-        <div class="kit-toggle-row">
-          <button class="kit-toggle-btn active-keep" data-toggle="keep">Keep</button>
-          <button class="kit-toggle-btn" data-toggle="change">Change</button>
-        </div>
-        <div class="kit-override">
-          <label class="kit-override-label">Describe what to change</label>
-          <textarea data-override placeholder="e.g. softer send icon / no custom cursor / add a 'menu' slot"></textarea>
-        </div>
-      </div>
-    </section>
-
-  </div>
-
-  <!-- ═══════════════════════════════════════════════════════════════════
-       Sticky submit bar
-       ═══════════════════════════════════════════════════════════════════ -->
-  <div class="kit-submit-bar">
-    <span class="kit-submit-status" id="kit-status">No changes yet</span>
-    <div class="kit-submit-actions">
-      <button class="kit-btn kit-btn-ghost" id="kit-rebuild-btn" disabled>▶ Rebuild with changes</button>
-      <button class="kit-btn kit-btn-primary" id="kit-build-btn">✓ Build Theme Pack</button>
-    </div>
-  </div>
-
-  <script src="/files/mockup-render.js"></script>
-  <script src="/files/helper.js"></script>
-  <script>
-    // ── State ─────────────────────────────────────────────────────────
-    // Each column tracks pending changes. On "Rebuild" we ship a single
-    // kit-submit event with all pending column changes to Claude. Claude
-    // regenerates _preview + rewrites screen.html; the page auto-reloads
-    // via the file-watcher's reload broadcast.
-    const columns = {};
-    let presets = null;
-
-    // ── Load presets and render cards ─────────────────────────────────
-    fetch('/files/kit-presets.json')
-      .then(r => r.json())
-      .then(data => {
-        presets = data;
-        renderPresets();
-        wireInteractions();
-      })
-      .catch(err => {
-        console.error('Failed to load kit-presets.json', err);
-        // Still wire interactions so override textareas work.
-        wireInteractions();
-      });
-
-    function renderPresets() {
-      document.querySelectorAll('.kit-column[data-kind="preset"]').forEach(col => {
-        const name = col.dataset.column;
-        const row = col.querySelector('[data-preset-row]');
-        const current = col.dataset.current;
-        const list = presets[name] || [];
-        row.innerHTML = list.map(p => presetCardHTML(name, p, current)).join('');
-      });
-
-      // Effects column — two groups
-      const effectsCol = document.querySelector('.kit-column[data-column="effects"]');
-      if (effectsCol && presets.effects) {
-        const currentParticles = effectsCol.dataset.currentParticles;
-        const currentOverlays = (effectsCol.dataset.currentOverlays || '')
-          .split(',').map(s => s.trim()).filter(Boolean);
-
-        const particlesRow = effectsCol.querySelector('[data-effects-group="particles"]');
-        particlesRow.innerHTML = (presets.effects.particles || [])
-          .map(p => presetCardHTML('effects-particles', p, currentParticles))
-          .join('');
-
-        const overlaysRow = effectsCol.querySelector('[data-effects-group="overlays"]');
-        overlaysRow.innerHTML = (presets.effects.overlays || [])
-          .map(p => {
-            const isCurrent = currentOverlays.includes(p.id);
-            return presetCardHTML('effects-overlays', p, isCurrent ? p.id : '');
-          })
-          .join('');
-      }
-    }
-
-    function presetCardHTML(column, p, currentId) {
-      const isCurrent = p.id === currentId;
-      const swatches = (p.swatches || []).map(c =>
-        `<span style="background:${c}"></span>`
-      ).join('');
-      const fontStyle = p.family ? `style="font-family:${escapeAttr(p.family)}"` : '';
-      const sample = p.sample ? `<div class="font-sample" ${fontStyle}>${escapeHtml(p.sample)}</div>` : '';
-      return `
-        <button type="button" class="kit-preset-card ${isCurrent ? 'current' : ''}"
-                data-preset-id="${escapeAttr(p.id)}" data-column="${escapeAttr(column)}">
-          <div class="name">${escapeHtml(p.name)}</div>
-          ${swatches ? `<div class="swatches">${swatches}</div>` : ''}
-          ${sample}
-          <span class="blurb">${escapeHtml(p.blurb || '')}</span>
+    <section class="k-section" data-column="effects" data-kind="effects">
+      <h2 style="margin:0">
+        <button class="k-section-toggle" aria-expanded="false">
+          <span class="k-chev" aria-hidden="true"></span>
+          <span class="k-section-title">Effects</span>
+          <span class="k-section-value" data-value></span>
+          <span class="k-chip k-chip--live">live</span>
+          <span class="k-dirty" hidden><span class="k-sr">modified</span></span>
         </button>
-      `;
-    }
+      </h2>
+      <div class="k-section-body">
+        <div>
+          <span class="k-label">Particles</span>
+          <div class="k-preset-grid" data-preset-row data-effects-group="particles" role="radiogroup" aria-label="Particles"></div>
+          <!-- Particles are NOT rendered in this preview (the app animates them
+               at runtime). Say so, rather than let it look broken. -->
+          <p class="k-token-use" style="margin-top:6px">Particles animate in the app — not in this preview.</p>
+        </div>
+        <div>
+          <span class="k-label">Overlays</span>
+          <div class="k-toggle-row">
+            <button class="k-toggle-btn" data-overlay="vignette" aria-pressed="false">Vignette</button>
+            <button class="k-toggle-btn" data-overlay="noise" aria-pressed="false">Noise</button>
+            <button class="k-toggle-btn" data-overlay="scan-lines" aria-pressed="false">Scanlines</button>
+          </div>
+        </div>
+        <details class="k-fine">
+          <summary>Overlay intensity</summary>
+          <div class="k-fine-body">
+            <div class="k-slider-row">
+              <label class="k-slider-label" for="s-vig">Vignette</label>
+              <input class="k-slider" id="s-vig" type="range" min="0" max="0.6" step="0.01"
+                     data-path="effects.vignette" data-unit-word="opacity" data-section="effects">
+              <output class="k-slider-out" for="s-vig"></output>
+            </div>
+            <div class="k-slider-row">
+              <label class="k-slider-label" for="s-noi">Noise</label>
+              <input class="k-slider" id="s-noi" type="range" min="0" max="0.12" step="0.005"
+                     data-path="effects.noise" data-unit-word="opacity" data-section="effects">
+              <output class="k-slider-out" for="s-noi"></output>
+            </div>
+            <div class="k-slider-row">
+              <!-- Multiplier on the 0.08 CSS base: the manifest has no scanline
+                   intensity field, so this lives in _kit and becomes custom_css
+                   at build time rather than a field the app would ignore. -->
+              <label class="k-slider-label" for="s-scan">Scanlines</label>
+              <input class="k-slider" id="s-scan" type="range" min="0" max="2" step="0.05"
+                     data-path="_kit.scanlineIntensity" data-unit="×" data-unit-word="multiplier" data-section="effects">
+              <output class="k-slider-out" for="s-scan"></output>
+            </div>
+          </div>
+        </details>
+      </div>
+    </section>
 
-    function escapeHtml(s) {
-      return String(s).replace(/[&<>"']/g, c => ({
-        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
-      }[c]));
-    }
-    function escapeAttr(s) { return escapeHtml(s); }
+    <!-- Wallpaper (needs Claude) -->
+    <section class="k-section" data-column="wallpaper" data-kind="review">
+      <h2 style="margin:0">
+        <button class="k-section-toggle" aria-expanded="false">
+          <span class="k-chev" aria-hidden="true"></span>
+          <span class="k-section-title">Wallpaper</span>
+          <span class="k-section-value" data-value>current</span>
+          <span class="k-chip">↻ rebuild</span>
+        </button>
+      </h2>
+      <div class="k-section-body">
+        <div class="k-review" id="k-wallpaper-preview"></div>
 
-    // ── Interactions ──────────────────────────────────────────────────
-    function wireInteractions() {
-      // Initialize column state
-      document.querySelectorAll('.kit-column').forEach(col => {
-        columns[col.dataset.column] = { action: 'keep', value: null, note: '' };
-      });
+        <!-- Upload is LIVE (unlike the regenerate button below it): the image is
+             already on disk, so it applies to the preview — and to the app, if
+             live preview is on — without Claude in the loop. -->
+        <div class="k-upload" id="k-upload">
+          <input type="file" id="k-upload-input" accept="image/jpeg,image/png,image/webp,image/gif" hidden>
+          <button class="k-btn k-btn-secondary k-btn-sm" id="k-upload-btn">Upload an image…</button>
+          <span class="k-token-use" id="k-upload-hint">or drop one here — JPEG, PNG, WebP or GIF, up to 16MB</span>
+        </div>
 
-      // Preset card clicks (palette/chrome/bubble/font + effects subgroups)
-      document.addEventListener('click', (e) => {
-        const card = e.target.closest('.kit-preset-card');
-        if (!card) return;
-        handlePresetClick(card);
-      });
+        <div>
+          <label class="k-label" for="n-wall">Describe a change</label>
+          <textarea class="k-field" id="n-wall" data-note="wallpaper" rows="2"
+                    placeholder="e.g. brighter, wider shot, no text"></textarea>
+        </div>
+        <button class="k-btn k-btn-secondary k-btn-sm" data-request="wallpaper">Ask Claude to regenerate</button>
+      </div>
+    </section>
 
-      // Review-kind toggle buttons (wallpaper/mascots/icons)
-      document.querySelectorAll('.kit-toggle-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const row = btn.closest('.kit-toggle-row');
-          row.querySelectorAll('.kit-toggle-btn')
-            .forEach(b => b.classList.remove('active-keep', 'active-change'));
-          const action = btn.dataset.toggle;
-          btn.classList.add(action === 'keep' ? 'active-keep' : 'active-change');
-          const colName = btn.closest('.kit-column').dataset.column;
-          columns[colName].action = action;
-          refreshStatus();
-        });
-      });
+    <!-- Mascots (needs Claude) -->
+    <section class="k-section" data-column="mascots" data-kind="review">
+      <h2 style="margin:0">
+        <button class="k-section-toggle" aria-expanded="false">
+          <span class="k-chev" aria-hidden="true"></span>
+          <span class="k-section-title">Mascots</span>
+          <span class="k-section-value" data-value></span>
+          <span class="k-chip">↻ rebuild</span>
+        </button>
+      </h2>
+      <div class="k-section-body">
+        <div class="k-review" id="k-mascot-preview"></div>
+        <div>
+          <label class="k-label" for="n-masc">Describe a change</label>
+          <textarea class="k-field" id="n-masc" data-note="mascots" rows="2"
+                    placeholder="e.g. add a wizard hat, or no mascots at all"></textarea>
+        </div>
+        <button class="k-btn k-btn-secondary k-btn-sm" data-request="mascots">Ask Claude to redraw</button>
+      </div>
+    </section>
 
-      // Override textareas — pending if non-empty
-      document.querySelectorAll('textarea[data-override]').forEach(ta => {
-        ta.addEventListener('input', () => {
-          const col = ta.closest('.kit-column');
-          const colName = col.dataset.column;
-          const override = ta.closest('.kit-override');
-          const hasText = ta.value.trim().length > 0;
-          override.classList.toggle('pending', hasText);
-          columns[colName].note = ta.value.trim();
-          if (hasText) columns[colName].action = 'override';
-          else if (columns[colName].action === 'override') columns[colName].action = 'keep';
-          refreshStatus();
-        });
-      });
+    <!-- Icons (needs Claude) -->
+    <section class="k-section" data-column="icons" data-kind="review">
+      <h2 style="margin:0">
+        <button class="k-section-toggle" aria-expanded="false">
+          <span class="k-chev" aria-hidden="true"></span>
+          <span class="k-section-title">Icons &amp; Details</span>
+          <span class="k-section-value" data-value></span>
+          <span class="k-chip">↻ rebuild</span>
+        </button>
+      </h2>
+      <div class="k-section-body">
+        <div class="k-review" id="k-icon-preview"></div>
+        <div>
+          <label class="k-label" for="n-ico">Describe a change</label>
+          <textarea class="k-field" id="n-ico" data-note="icons" rows="2"
+                    placeholder="e.g. softer send icon, custom cursor"></textarea>
+        </div>
+        <button class="k-btn k-btn-secondary k-btn-sm" data-request="icons">Ask Claude to redraw</button>
+      </div>
+    </section>
 
-      // Submit buttons
-      document.getElementById('kit-rebuild-btn').addEventListener('click', submitKit.bind(null, 'rebuild'));
-      document.getElementById('kit-build-btn').addEventListener('click', submitKit.bind(null, 'build'));
+  </div>
+</div>
 
-      refreshStatus();
-    }
+<div class="k-dock">
+  <span class="k-dock-status" id="k-dock-status" aria-live="polite">No changes yet</span>
+  <div class="k-dock-actions">
+    <button class="k-btn k-btn-primary" id="k-build" data-blocking="0">Build theme pack</button>
+  </div>
+</div>
 
-    function handlePresetClick(card) {
-      const colName = card.dataset.column;
-      const presetId = card.dataset.presetId;
-
-      // Effects overlays are multi-select; everything else is single-pick.
-      if (colName === 'effects-overlays') {
-        card.classList.toggle('pending');
-        const col = document.querySelector('.kit-column[data-column="effects"]');
-        const picked = [...col.querySelectorAll('[data-column="effects-overlays"].pending, [data-column="effects-overlays"].current:not(.pending)')]
-          .map(c => c.dataset.presetId);
-        // "current" cards that the user hasn't de-selected still count
-        const active = [];
-        col.querySelectorAll('[data-column="effects-overlays"]').forEach(c => {
-          const isCurrent = c.classList.contains('current');
-          const isPending = c.classList.contains('pending');
-          // XOR: selected if currently-on but not toggled off, or toggled on
-          if ((isCurrent && !isPending) || (!isCurrent && isPending)) active.push(c.dataset.presetId);
-        });
-        columns['effects'].action = 'preset';
-        columns['effects'].overlays = active;
-        refreshStatus();
-        return;
-      }
-
-      if (colName === 'effects-particles') {
-        const col = document.querySelector('.kit-column[data-column="effects"]');
-        col.querySelectorAll('[data-column="effects-particles"]').forEach(c => c.classList.remove('pending'));
-        if (presetId !== col.dataset.currentParticles) card.classList.add('pending');
-        columns['effects'].action = 'preset';
-        columns['effects'].particles = presetId;
-        refreshStatus();
-        return;
-      }
-
-      // Normal preset column
-      const col = document.querySelector(`.kit-column[data-column="${colName}"]`);
-      col.querySelectorAll('.kit-preset-card').forEach(c => c.classList.remove('pending'));
-      if (presetId !== col.dataset.current) card.classList.add('pending');
-      columns[colName].action = (presetId === col.dataset.current) ? 'keep' : 'preset';
-      columns[colName].value = presetId;
-      refreshStatus();
-    }
-
-    function refreshStatus() {
-      const pending = Object.entries(columns).filter(([k, v]) => {
-        if (v.action === 'override' && v.note) return true;
-        if (v.action === 'change') return true;
-        if (v.action === 'preset' && v.value) return true;
-        if (k === 'effects' && v.action === 'preset') return true;
-        return false;
-      });
-      const statusEl = document.getElementById('kit-status');
-      const rebuildBtn = document.getElementById('kit-rebuild-btn');
-      if (pending.length === 0) {
-        statusEl.textContent = 'No changes pending';
-        rebuildBtn.disabled = true;
-      } else {
-        statusEl.textContent = `${pending.length} change${pending.length > 1 ? 's' : ''} pending`;
-        rebuildBtn.disabled = false;
-      }
-    }
-
-    function submitKit(intent) {
-      // Collect all pending changes into a flat payload Claude can read
-      // from the server's user-event log.
-      const changes = {};
-      Object.entries(columns).forEach(([name, state]) => {
-        if (state.action === 'keep' && !state.note) return;
-        changes[name] = { ...state };
-      });
-
-      if (window.brainstorm) {
-        window.brainstorm.send({
-          type: 'kit-submit',
-          intent,                  // "rebuild" or "build"
-          changes,
-        });
-      }
-
-      const statusEl = document.getElementById('kit-status');
-      const rebuildBtn = document.getElementById('kit-rebuild-btn');
-      const buildBtn = document.getElementById('kit-build-btn');
-      rebuildBtn.disabled = true;
-      buildBtn.disabled = true;
-      statusEl.textContent = intent === 'build'
-        ? 'Building theme pack — return to the terminal...'
-        : 'Sent — Claude is applying changes, page will reload...';
-    }
-  </script>
+<script src="/files/contrast-rules.js"></script>
+<script src="/files/kit-state.js"></script>
+<script src="/files/mockup-render.js"></script>
+<script src="/files/kit-page.js"></script>
+<script src="/files/helper.js"></script>
 </body>
 </html>

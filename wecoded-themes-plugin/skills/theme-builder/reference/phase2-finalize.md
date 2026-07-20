@@ -89,7 +89,7 @@ Adapt the reference patterns to fit the theme. Do NOT blindly copy — adjust op
 ## Step 7: Validate Contrast
 
 ```bash
-node core/skills/theme-builder/scripts/check-contrast.cjs ~/.claude/wecoded-themes/<slug>/manifest.json
+node ${SKILL}/scripts/check-contrast.cjs ~/.claude/wecoded-themes/<slug>/manifest.json
 ```
 
 If any HARD or SURFACE rules fail, fix the tokens and re-run. Soft warnings can be noted to the user but don't need fixing.

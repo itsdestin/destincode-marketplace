@@ -4,12 +4,56 @@ Read this file before generating the 3 concept cards in Phase 1. It documents th
 
 ## Per-card structure
 
-Each concept is a `.concept-card` div with `data-choice="A"` (or B, C). Set all CSS tokens as inline `style="--canvas: #HEX; ..."` on the scoping div. Inside each card:
+**Updated 2026-07-19** — the concept page now shares the Kit editor's chrome, so
+cards use `c-`-prefixed classes and `--ui-*` page chrome. The old
+`.concept-card` / `.concept-label` markup is gone.
 
-1. **Theme name** (`<h2>`) and **one-sentence vibe** (`<p>`)
-2. **Swatch row** — 5 color swatches (canvas, panel, inset, accent, fg)
-3. **Vibe tags** — `.concept-label` spans listing planned features (e.g. "floating input", "glassmorphism")
-4. **App mockup** — see below.
+Each concept is a `.c-card` div with `data-choice="A"` (or B, C). Set all the
+theme's CSS tokens as inline `style="--canvas: #HEX; …"` on that div — the
+`.app-mockup` inside inherits them. **Never write theme tokens to `:root` or
+`body`**: three themes share this page, and page chrome reads `--ui-*` and must
+stay legible against all of them.
+
+```html
+<div class="c-card" data-choice="A"
+     style="--canvas:#EDE8DD; --panel:#E3DCCB; --inset:#D2C6AA; --well:#CFC3A8;
+            --accent:#7A5A2E; --on-accent:#FFFFFF; --fg:#2B2318; --fg-2:#5A4E3B;
+            --fg-dim:#7C7058; --fg-muted:#9C9179; --fg-faint:#C4BCA5;
+            --edge:#A8987A; --edge-dim:#A8987A80; --shadow-strength:0.2;
+            --font-sans:'Space Grotesk', sans-serif;">
+  <div class="c-stage">
+    <div class="app-mockup" data-mockup …></div>
+  </div>
+</div>
+```
+
+**The panel contains the stage and nothing else.** No title, vibe line, swatch
+row, or tag row — the tab above already shows all of that, and repeating it
+inside the panel costs ~100px of preview height for zero information. The
+preview is the entire point of the panel.
+
+Its matching tab carries the identifying detail:
+
+```html
+<button class="c-tab" role="tab" data-choice="A" aria-selected="false">
+  <span class="c-tab-head">
+    <span class="c-letter" aria-hidden="true">A</span>
+    <span class="c-card-title c-tab-title">Ivory Schematic</span>
+  </span>
+  <span class="c-swatches" aria-hidden="true">
+    <span style="background:#EDE8DD"></span><span style="background:#E3DCCB"></span>
+    <span style="background:#D2C6AA"></span><span style="background:#7A5A2E"></span>
+    <span style="background:#2B2318"></span>
+  </span>
+  <span class="c-card-vibe">Image wallpaper · ember particles · vignette</span>
+</button>
+```
+
+Emit one tab per concept into `.c-tabs`, in the same A/B/C order as the panels —
+`data-choice` is what pairs them.
+
+Selection state is handled by the page (`aria-checked` on `.c-card`) — don't
+hand-write a selected class.
 
 ## App mockup (data-attribute contract)
 

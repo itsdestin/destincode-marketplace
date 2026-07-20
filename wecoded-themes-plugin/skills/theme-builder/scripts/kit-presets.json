@@ -56,7 +56,7 @@
     {
       "id": "floating",
       "name": "Floating",
-      "blurb": "Header, input, and status bars float as detached rounded cards",
+      "blurb": "Bars become separate cards — the continuous frame goes away",
       "layout": { "chrome-style": "floating", "input-style": "floating", "header-style": "default", "statusbar-style": "default" }
     },
     {
@@ -64,12 +64,6 @@
       "name": "Minimal",
       "blurb": "Header hidden, thin status bar, input as a single line",
       "layout": { "chrome-style": "default", "input-style": "minimal", "header-style": "minimal", "statusbar-style": "minimal" }
-    },
-    {
-      "id": "terminal",
-      "name": "Terminal",
-      "blurb": "Monospace-forward, input styled as a shell prompt",
-      "layout": { "chrome-style": "default", "input-style": "terminal", "header-style": "default", "statusbar-style": "default" }
     }
   ],
 

@@ -1,14 +1,19 @@
 /*
- * DestinCode Theme Preview CSS
+ * YouCoded Theme Preview CSS
  * Self-contained CSS that replicates the app's theme rendering.
- * Used by /theme-builder concept cards so HTML preview matches the app.
+ * Used by /theme-builder concept cards + the Kit editor so the HTML preview
+ * matches the app.
  *
  * CONTRACT: Class names and CSS properties MUST match
- * desktop/src/renderer/styles/globals.css + Tailwind @theme block.
+ * youcoded/desktop/src/renderer/styles/globals.css + its Tailwind @theme block.
  *
- * SYNC CHECK: Run `node core/skills/theme-builder/scripts/sync-check.cjs`
- * to verify this file stays in sync with globals.css.
- * Last synced: 2026-04-12
+ * SYNC CHECK: Run `node <skill>/scripts/sync-check.cjs` to verify this file
+ * stays in sync with globals.css. That guard was silently dead from 2026-04-12
+ * to 2026-07-19 (stale paths — it exited before running a single check), which
+ * is how the entire framed-shell chrome refactor landed unpreviewed. If you
+ * change this file or globals.css, RUN THE GUARD.
+ *
+ * Last synced: 2026-07-19
  */
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -38,6 +43,105 @@ body {
 /* Borders */
 .border-edge     { border-color: var(--edge); }
 .border-edge-dim { border-color: var(--edge-dim); }
+
+/* ── App scales + derived tokens (mirrors globals.css) ──────────────────────
+   These are app defaults, declared at :root so they behave exactly as they do
+   in globals.css. A theme overrides the radius scale by writing --radius-* onto
+   the MOCKUP element, never onto :root — that keeps a theme's rounding from
+   resizing the surrounding page chrome when the preview is embedded in an
+   editor. See the isolation rules in kit-page.css. */
+:root {
+  /* Named type scale — the app's chrome runs 9-11px, which is half its
+     visual identity. Mockups that hardcode 12px read as too large. */
+  --text-4xs: 9px;
+  --text-3xs: 10px;
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+
+  /* Full radius scale (globals.css). Previously only --radius-lg was
+     referenced here, so a theme setting --radius-md got inconsistent results. */
+  --radius: 4px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 24px;
+  --radius-full: 9999px;
+  --radius-toggle: calc(var(--radius-md) - 2px);
+
+  /* Frame geometry defaults — the mockup rescales these (see FRAMED SHELL). */
+  --frame-edge: 10px;
+  --frame-corner: 12px;
+  --right-pane-width: 480px;
+}
+
+/* Derived tokens: the app COMPUTES these per-theme in theme-engine.ts
+   (computeOverlayTokens) rather than reading them from the manifest —
+   --shadow-strength is 0.2 on light themes and 0.1 on dark, --scrim is canvas
+   mixed toward black. A standalone preview can't run that, so the theme layer
+   supplies them inline on the mockup and these are only the fallbacks. Do NOT
+   hardcode per-theme values here; that would silently diverge from the engine. */
+.app-mockup {
+  --shadow-strength: 0.15;
+  --scrim: rgba(0, 0, 0, 0.5);
+}
+
+/* Overlay backdrop (globals.css .layer-scrim). --scrim is theme-derived —
+   canvas mixed toward black — so it genuinely differs per theme and is worth
+   previewing when a mockup shows an overlay state. */
+.layer-scrim {
+  position: absolute;
+  inset: 0;
+  background-color: var(--scrim);
+}
+.layer-scrim[data-layer="3"] {
+  background-color: var(--scrim-heavy, var(--scrim));
+}
+
+/* The app's canonical card/popup surface (globals.css .layer-surface).
+   Used by Settings sections, marketplace tiles, and every popover. */
+.layer-surface {
+  background-color: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, var(--shadow-strength, 0.15));
+  overflow: hidden;
+}
+
+/* Button recipe — transcribed from components/ui/Button.tsx so mockups and the
+   Kit page use ONE shared look.
+
+   CRITICAL: hover is a background fade TOWARD THE SURFACE via color-mix, never
+   filter: brightness() or an opacity shift. Crème's accent is #3D3229 (near
+   black); brightening it is invisible, and dimming it on dark themes is equally
+   invisible. Tailwind's `hover:bg-accent/90` is alpha-over-parent, and
+   color-mix toward --panel is the faithful standalone equivalent. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+.btn-primary   { background: var(--accent); color: var(--on-accent); }
+.btn-primary:hover   { background: color-mix(in srgb, var(--accent) 90%, var(--panel)); }
+.btn-secondary { background: transparent; border-color: var(--edge-dim); color: var(--fg-2); }
+.btn-secondary:hover { background: var(--inset); }
+.btn-ghost     { background: transparent; color: var(--fg-dim); }
+.btn-ghost:hover     { background: var(--inset); color: var(--fg); }
+.btn-danger    { background: var(--destructive, #DD4444); color: var(--on-destructive, #FFFFFF); }
+.btn-danger:hover    { background: color-mix(in srgb, var(--destructive, #DD4444) 90%, var(--panel)); }
+.btn-sm   { font-size: var(--text-2xs); padding: 4px 10px; }
+.btn-md   { font-size: var(--text-xs);  padding: 6px 12px; }
+.btn-lg   { font-size: var(--text-sm);  padding: 8px 16px; }
+.btn-icon { width: 28px; height: 28px; padding: 0; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* Radius */
 .rounded      { border-radius: var(--radius, 4px); }
@@ -77,36 +181,35 @@ body {
    [data-panels-blur] / [data-bubble-blur] so non-blur themes don't
    create spurious stacking contexts. See GLASSMORPHISM-REFACTOR-PLAN.md. */
 
-/* Header bar — opacity always, blur gated */
+/* ── Chrome bar surfaces ─────────────────────────────────────────────────────
+   In FRAMED mode the bars have NO background and NO border — globals.css says
+   so in as many words (`/* no background in framed mode *​/` on both
+   .status-bar and .input-bar-container). chrome-glass carries the entire chrome
+   surface behind them.
+
+   This preview used to paint an unconditional panel background plus 1px
+   borders on all three bars, which double-painted over chrome-glass and drew
+   horizontal seams between header / chat / input that the real app does not
+   have. Reported 2026-07-19: "classic just looks like a broken version of
+   minimal with the extra horizontal lines". The bars are now transparent by
+   default and only take a background in floating modes, exactly like the app.
+   ─────────────────────────────────────────────────────────────────────────── */
+
 .header-bar {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
   z-index: 20;
-  background-color: color-mix(in srgb, var(--panel) calc(var(--panels-opacity, 1) * 100%), transparent);
-}
-[data-panels-blur] .header-bar {
-  backdrop-filter: blur(var(--panels-blur)) saturate(1.2);
-  -webkit-backdrop-filter: blur(var(--panels-blur)) saturate(1.2);
+  /* no background in framed mode — chrome-glass provides it */
 }
 
-/* Status bar — opacity always, blur gated */
 .status-bar {
-  background-color: color-mix(in srgb, var(--panel) calc(var(--panels-opacity, 1) * 100%), transparent);
-}
-[data-panels-blur] .status-bar {
-  backdrop-filter: blur(var(--panels-blur)) saturate(1.2);
-  -webkit-backdrop-filter: blur(var(--panels-blur)) saturate(1.2);
+  /* no background in framed mode */
 }
 
-/* Input bar — opacity always, blur gated */
 .input-bar-container {
-  background-color: color-mix(in srgb, var(--panel) calc(var(--panels-opacity, 1) * 100%), transparent);
-}
-[data-panels-blur] .input-bar-container {
-  backdrop-filter: blur(var(--panels-blur)) saturate(1.2);
-  -webkit-backdrop-filter: blur(var(--panels-blur)) saturate(1.2);
+  /* no background in framed mode */
 }
 
 /* Assistant bubbles — opacity always, blur gated */
@@ -156,7 +259,12 @@ body {
 }
 [data-input-style="minimal"] .input-bar-container {
   border-top: none;
-  background: transparent;
+  background: transparent !important;
+  /* Must also kill the blur, not just the background — otherwise a "minimal"
+     input on a glass theme still renders a frosted slab and the preset looks
+     broken. Drift caught by sync-check after the guard was repaired. */
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 [data-input-style="terminal"] .input-bar-container {
   border-radius: 0;
@@ -200,7 +308,7 @@ body {
 [data-statusbar-style="minimal"] .status-bar {
   background: transparent;
   border-top: none;
-  font-size: 9px;
+  font-size: var(--text-4xs, 9px);
 }
 /* Floating chrome — elevate all bars into detached rounded cards.
    Activated by layout.chrome-style: "floating" in a theme manifest. */
@@ -230,6 +338,399 @@ body {
   background: var(--panel);
 }
 
+/* Floating bar surfaces live HERE, after the layout presets above, so the
+   geometry rule stays the FIRST [data-input-style="floating"] match — the
+   same order globals.css uses (geometry at :1000, background at :639).
+   sync-check compares first-match against first-match, so putting the
+   background block earlier made it report the pill's radius/margin/shadow
+   as missing. */
+/* Floating (full OR partial): chrome-glass is hidden, so each bar carries its
+   own surface and its own blur. */
+[data-chrome-style="floating"] .header-bar,
+[data-input-style="floating"] .header-bar,
+[data-chrome-style="floating"] .status-bar,
+[data-input-style="floating"] .status-bar,
+[data-chrome-style="floating"] .input-bar-container,
+[data-input-style="floating"] .input-bar-container {
+  background-color: color-mix(in srgb, var(--panel) calc(var(--panels-opacity, 1) * 100%), transparent);
+}
+[data-panels-blur][data-chrome-style="floating"] .header-bar,
+[data-panels-blur][data-input-style="floating"] .header-bar,
+[data-panels-blur][data-chrome-style="floating"] .status-bar,
+[data-panels-blur][data-input-style="floating"] .status-bar,
+[data-panels-blur][data-chrome-style="floating"] .input-bar-container,
+[data-panels-blur][data-input-style="floating"] .input-bar-container {
+  backdrop-filter: blur(var(--panels-blur)) saturate(1.2);
+  -webkit-backdrop-filter: blur(var(--panels-blur)) saturate(1.2);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   FRAMED SHELL — ported from globals.css "Framed-shell layout"
+
+   The app does NOT draw three independently floating bars. It paints ONE
+   continuous --panel surface with a rounded rectangular hole cut out of it, so
+   the panel color from the header extends down the left edge, between the chat
+   and the drawer, and down the right edge — the chat appears inset in a picture
+   frame. That frame is the dominant visual mass of every themed screen.
+
+   Why ONE element: the previous design tiled header-bar / frame-edge /
+   frame-divider / drawer-pane, each carrying its own translucent panel plus its
+   own backdrop-filter. At non-integer zoom the subpixel overlaps composited
+   darker and the subpixel gaps leaked sharp wallpaper. One element = one
+   backdrop-filter = one uniform tone. Do not reintroduce per-element blur here.
+
+   SCALE NOTE: the app uses --frame-edge:10px / --frame-corner:12px on a ~1400px
+   window. This mockup is 560px wide but keeps its chrome near real size for
+   legibility, so it is not uniformly scaled. Literal 10px here reads as a chunky
+   border rather than a thin inset. The vars below are tuned to LOOK right at
+   mockup scale — they are one knob, and sync-check verifies the preview
+   references var(--frame-edge)/var(--frame-corner), not that the px match.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.app-mockup {
+  --frame-edge: 6px;
+  --frame-corner: 8px;
+  --right-pane-width: 168px;      /* ~480px at app scale */
+  /* Must equal the mockup's real rendered chrome heights or the cutout
+     misaligns with the bars. The bars below are fixed-height for this reason. */
+  --top-chrome-height: 36px;
+  --bottom-chrome-height: 60px;
+}
+
+/* The bottom chrome stack (input + status). Transparent because it sits at
+   z-20 ABOVE chrome-glass at z-10 — giving it a background would double up the
+   panel tone and reintroduce the seams the single-glass refactor removed. */
+.app-mockup .chrome-wrapper {
+  background-color: transparent !important;
+  position: relative;
+  z-index: 20;
+  flex-shrink: 0;
+}
+
+.app-mockup .framed-shell {
+  background: transparent;
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  /* NO padding-top here. Unlike the app — where .header-bar is absolutely
+     positioned so chat scrolls under it — the mockup's header sits IN FLOW, so
+     the shell already starts below it. Adding padding would double-count the
+     header height and push the chat out of the chrome-glass cutout. */
+}
+
+/* --top/--bottom-chrome-height are MEASURED from the real rendered bars by
+   mockup-render.js, not hardcoded. The clip-path cutout is derived from them,
+   so any disagreement between the vars and the actual bar heights misaligns the
+   hole — which is exactly what a hardcoded guess produces the moment a font or
+   a layout preset changes a bar's height. The app measures these too. */
+
+/* Frame edges + divider are flex SPACERS ONLY — width preserved so the panes
+   size to fit inside the cutout, but no background and no backdrop-filter. The
+   visible chrome surface is chrome-glass behind them. */
+.app-mockup .framed-shell > .frame-edge,
+.app-mockup .framed-shell > .frame-divider {
+  width: var(--frame-edge);
+  flex-shrink: 0;
+}
+
+/* Chat pane — no explicit background; the wallpaper layer shows through. */
+.app-mockup .framed-shell > .chat-pane {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Right pane (artifact drawer OR game pane — mutually exclusive).
+   NOTE: the pane itself is --canvas, but SessionDrawer paints bg-inset over it,
+   so the VISIBLE interior is --inset with a --well sub-header. Filling this with
+   --canvas looks wrong against the real app. */
+.app-mockup .framed-shell > .drawer-pane {
+  width: var(--right-pane-width);
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: var(--frame-corner);
+  background-color: var(--inset);
+  /* Above chrome-glass (z-10): the polygon only cuts out the CHAT region, so
+     without this the chrome would paint straight over the drawer. */
+  z-index: 11;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.app-mockup .drawer-pane-header {
+  background-color: var(--well);
+  border-bottom: 1px solid var(--edge);
+  padding: 6px 8px;
+  font-size: var(--text-3xs, 10px);
+  color: var(--fg-2);
+  flex-shrink: 0;
+}
+.app-mockup .drawer-pane-body {
+  flex: 1;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+.app-mockup .drawer-pane-row {
+  height: 10px;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--panel);
+  border: 1px solid var(--edge-dim);
+}
+
+/* ─── The chrome donut ───────────────────────────────────────────────────── */
+.app-mockup .chrome-glass {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+  background-color: var(--panel);
+
+  /* Distance from the mockup's right edge to the right edge of the chat
+     cutout. --frame-edge by default; grows when the right pane is open. The
+     polygon references this instead of hard-coding an edge, so the drawer-open
+     variant only redeclares this one var. */
+  --chat-right-offset: var(--frame-edge);
+
+  /* Outer rect (clockwise) + inner rounded rect (counter-clockwise); CSS's
+     default nonzero fill rule subtracts the inner from the outer. Each inner
+     corner approximates a quarter-circle with 3 intermediate points at 22.5°
+     steps via cos()/sin() (Chromium 111+). */
+  clip-path: polygon(
+    0 0, 100% 0, 100% 100%, 0 100%, 0 0,
+
+    calc(100% - var(--chat-right-offset) - var(--frame-corner)) var(--top-chrome-height, 3rem),
+    calc(var(--frame-edge) + var(--frame-corner)) var(--top-chrome-height, 3rem),
+
+    calc(var(--frame-edge) + var(--frame-corner) * (1 + cos(247.5deg))) calc(var(--top-chrome-height, 3rem) + var(--frame-corner) * (1 + sin(247.5deg))),
+    calc(var(--frame-edge) + var(--frame-corner) * (1 + cos(225deg))) calc(var(--top-chrome-height, 3rem) + var(--frame-corner) * (1 + sin(225deg))),
+    calc(var(--frame-edge) + var(--frame-corner) * (1 + cos(202.5deg))) calc(var(--top-chrome-height, 3rem) + var(--frame-corner) * (1 + sin(202.5deg))),
+
+    var(--frame-edge) calc(var(--top-chrome-height, 3rem) + var(--frame-corner)),
+    var(--frame-edge) calc(100% - var(--bottom-chrome-height, 5rem) - var(--frame-corner)),
+
+    calc(var(--frame-edge) + var(--frame-corner) * (1 + cos(157.5deg))) calc(100% - var(--bottom-chrome-height, 5rem) + var(--frame-corner) * (sin(157.5deg) - 1)),
+    calc(var(--frame-edge) + var(--frame-corner) * (1 + cos(135deg))) calc(100% - var(--bottom-chrome-height, 5rem) + var(--frame-corner) * (sin(135deg) - 1)),
+    calc(var(--frame-edge) + var(--frame-corner) * (1 + cos(112.5deg))) calc(100% - var(--bottom-chrome-height, 5rem) + var(--frame-corner) * (sin(112.5deg) - 1)),
+
+    calc(var(--frame-edge) + var(--frame-corner)) calc(100% - var(--bottom-chrome-height, 5rem)),
+    calc(100% - var(--chat-right-offset) - var(--frame-corner)) calc(100% - var(--bottom-chrome-height, 5rem)),
+
+    calc(100% - var(--chat-right-offset) + var(--frame-corner) * (cos(67.5deg) - 1)) calc(100% - var(--bottom-chrome-height, 5rem) + var(--frame-corner) * (sin(67.5deg) - 1)),
+    calc(100% - var(--chat-right-offset) + var(--frame-corner) * (cos(45deg) - 1)) calc(100% - var(--bottom-chrome-height, 5rem) + var(--frame-corner) * (sin(45deg) - 1)),
+    calc(100% - var(--chat-right-offset) + var(--frame-corner) * (cos(22.5deg) - 1)) calc(100% - var(--bottom-chrome-height, 5rem) + var(--frame-corner) * (sin(22.5deg) - 1)),
+
+    calc(100% - var(--chat-right-offset)) calc(100% - var(--bottom-chrome-height, 5rem) - var(--frame-corner)),
+    calc(100% - var(--chat-right-offset)) calc(var(--top-chrome-height, 3rem) + var(--frame-corner)),
+
+    calc(100% - var(--chat-right-offset) + var(--frame-corner) * (cos(-22.5deg) - 1)) calc(var(--top-chrome-height, 3rem) + var(--frame-corner) * (1 + sin(-22.5deg))),
+    calc(100% - var(--chat-right-offset) + var(--frame-corner) * (cos(-45deg) - 1)) calc(var(--top-chrome-height, 3rem) + var(--frame-corner) * (1 + sin(-45deg))),
+    calc(100% - var(--chat-right-offset) + var(--frame-corner) * (cos(-67.5deg) - 1)) calc(var(--top-chrome-height, 3rem) + var(--frame-corner) * (1 + sin(-67.5deg))),
+
+    /* Explicit close back to the inner start. Without it the implicit close
+       jumps to (0,0) and leaves a stray diagonal that distorts the TR arc. */
+    calc(100% - var(--chat-right-offset) - var(--frame-corner)) var(--top-chrome-height, 3rem)
+  );
+}
+
+/* Glass tone on wallpaper themes — same color-mix the bars use. */
+.app-mockup[data-wallpaper] .chrome-glass,
+.app-mockup .chrome-glass {
+  background-color: color-mix(in srgb, var(--panel) calc(var(--panels-opacity, 1) * 100%), transparent);
+}
+
+/* ─── Framed-mode blur ──────────────────────────────────────────────────────
+ *
+ * MEASURED IN CHROME (four-case isolation test, 2026-07-19), because the
+ * previous note here asserted the opposite and was wrong:
+ *
+ *     no clip anywhere ................. blur WORKS
+ *     blur on the clipped element ...... no blur
+ *     blur on a child of the clipped el. no blur
+ *     blur on ::after of the clipped el. no blur   <- what this file used to do
+ *
+ * A clip-path makes the element a BACKDROP ROOT, so anything at or inside it
+ * has no backdrop left to sample. Framed chrome therefore rendered tint-only
+ * while floating chrome — plain unclipped bars — blurred correctly. Reported
+ * 2026-07-19: "panel blur works in floating, not at all in classic".
+ *
+ * So the blur cannot live under the donut. It lives on four UNCLIPPED strips
+ * butted around the chat cutout, using the same geometry vars the polygon does
+ * (left/top/right/bottom of the cutout = frame-edge / top-chrome-height /
+ * chat-right-offset / bottom-chrome-height). They BUTT rather than overlap, so
+ * no pixel is blurred twice.
+ *
+ * Known, accepted imperfection: the strips have square corners where the
+ * cutout has rounded ones, so a few px at each chat corner get frosted. Blur
+ * has no shape detail of its own and the tinted donut sits on top with the
+ * correct radius, so this is invisible at normal sizes — and far cheaper than
+ * rebuilding the frame out of four separately-tinted pieces, which is exactly
+ * the seam-prone design the app abandoned. */
+.app-mockup .chrome-blur { display: none; }
+.app-mockup[data-panels-blur] .chrome-blur {
+  display: block;
+  position: absolute;
+  inset: 0;
+  z-index: 9;              /* directly beneath .chrome-glass (z-10) */
+  pointer-events: none;
+  --chat-right-offset: var(--frame-edge);
+}
+.app-mockup .chrome-blur--drawer-open {
+  --chat-right-offset: calc(var(--frame-edge) * 2 + var(--right-pane-width, 168px));
+}
+.app-mockup[data-panels-blur] .chrome-blur > div {
+  position: absolute;
+  backdrop-filter: blur(var(--panels-blur, 0)) saturate(1.2);
+  -webkit-backdrop-filter: blur(var(--panels-blur, 0)) saturate(1.2);
+}
+/* Full-width bands above and below the cutout… */
+.app-mockup[data-panels-blur] .chrome-blur-t {
+  top: 0; left: 0; right: 0; height: var(--top-chrome-height, 3rem);
+}
+.app-mockup[data-panels-blur] .chrome-blur-b {
+  bottom: 0; left: 0; right: 0; height: var(--bottom-chrome-height, 5rem);
+}
+/* …and the two side rails between them, so nothing overlaps. */
+.app-mockup[data-panels-blur] .chrome-blur-l {
+  top: var(--top-chrome-height, 3rem); bottom: var(--bottom-chrome-height, 5rem);
+  left: 0; width: var(--frame-edge);
+}
+.app-mockup[data-panels-blur] .chrome-blur-r {
+  top: var(--top-chrome-height, 3rem); bottom: var(--bottom-chrome-height, 5rem);
+  right: 0; width: var(--chat-right-offset);
+}
+
+/* The donut keeps the tint — one tint layer only. Stacking a second one meant
+   framed chrome composited 0.78 over 0.78 (~0.95 effective) while floating
+   stayed at 0.78: same declared opacity, visibly denser result. Reported
+   2026-07-19. */
+
+/* Right pane open: the cutout's right edge shifts left to leave room for
+   outer edge + pane + divider. Shape is otherwise identical. */
+.app-mockup .chrome-glass--drawer-open {
+  --chat-right-offset: calc(var(--frame-edge) * 2 + var(--right-pane-width, 168px));
+}
+
+/* ─── The floating fork ──────────────────────────────────────────────────────
+   EITHER attribute kills the continuous frame — input-style:'floating' is the
+   partial case (floating input pill under a default header). A preview that
+   only checks chrome-style would mislead an author who picked the other one. */
+[data-chrome-style="floating"] .chrome-glass,
+[data-input-style="floating"] .chrome-glass {
+  display: none;
+}
+[data-chrome-style="floating"] .framed-shell > .frame-edge,
+[data-input-style="floating"] .framed-shell > .frame-edge,
+[data-chrome-style="floating"] .framed-shell > .frame-divider,
+[data-input-style="floating"] .framed-shell > .frame-divider {
+  display: none;
+}
+/* Without the frame to merge into, the pane becomes a self-contained pill. */
+[data-chrome-style="floating"] .framed-shell > .drawer-pane,
+[data-input-style="floating"] .framed-shell > .drawer-pane {
+  margin: 6px 8px 6px 0;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, var(--shadow-strength, 0.15));
+}
+
+/* ─── Header additions that shipped after the 2026-04-12 sync ────────────── */
+
+.app-mockup .header-right {
+  /* No margin-left:auto — .header-center is flex:1 and already claims the
+     slack. Adding auto margin too would fight it. */
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+/* Header control groups.
+
+   Every right-cluster control in the app lives inside its OWN `bg-inset
+   rounded-md p-0.5` container with the button itself `px-2 py-1
+   rounded-[var(--radius-toggle)]` (HeaderBar.tsx:261, 650, 42). The first pass
+   drew bare buttons with no container, which is why they read as "wrong
+   styling/background" against the live app. */
+.app-mockup .header-pill {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 2px;
+  background: var(--inset);
+  border-radius: var(--radius-md, 8px);
+  flex-shrink: 0;
+}
+.app-mockup .header-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 5px;
+  border: none;
+  background: transparent;
+  color: var(--fg-dim);
+  border-radius: var(--radius-toggle);
+  cursor: default;
+}
+.app-mockup .header-pill-btn:hover { color: var(--fg-2); }
+.app-mockup .header-pill-btn svg { width: 13px; height: 13px; }
+/* Open state — the app fills the button with accent while its pane is showing
+   (HeaderBar.tsx:267, 652). The count badge inverts so it stays legible. */
+.app-mockup .header-pill-btn.is-active {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.app-mockup .header-pill-btn.is-active .header-badge {
+  background: var(--on-accent);
+  color: var(--accent);
+}
+
+/* Badge and dot are INLINE siblings of the icon (gap-1), not absolutely
+   positioned — the app lays them out in flow inside the button. */
+.app-mockup .header-badge {
+  min-width: 12px;
+  padding: 0 3px;
+  border-radius: var(--radius-full, 9999px);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: var(--text-4xs, 9px);
+  line-height: 1.4;
+  text-align: center;
+}
+.app-mockup .header-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: var(--radius-full, 9999px);
+  /* Theme-independent status colour by design, like .session-dot. */
+  background: #4ade80;
+  flex-shrink: 0;
+}
+
+/* Window caption buttons. Present on Windows AND Linux (frameless on both);
+   absent on macOS, which has native traffic lights. */
+.app-mockup .caption-buttons { margin-left: 3px; }
+.app-mockup .caption-btn svg { width: 9px; height: 9px; }
+.app-mockup .caption-btn:hover { background: var(--panel); color: var(--fg); }
+.app-mockup .caption-close:hover { background: #DD4444; color: #fff; }
+
+/* View toggle. The app animates a single absolutely-positioned accent pill
+   sliding between the two buttons, sized from JS-measured button widths. A
+   static mockup can neither measure nor animate, and the end state is visually
+   identical, so the active button carries the accent directly — using the real
+   --radius-toggle the app uses, not the --radius-sm this previously guessed. */
+.app-mockup .view-toggle-btn.active {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-radius: var(--radius-toggle);
+}
+
 /* Scrollbar — matches app responsive sizing */
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 @media (min-width: 640px) {
@@ -245,7 +746,7 @@ body {
   position: absolute;
   top: 8px;
   right: 8px;
-  font-size: 9px;
+  font-size: var(--text-4xs, 9px);
   padding: 2px 8px;
   border-radius: var(--radius-full, 9999px);
   background: var(--accent);
@@ -257,13 +758,13 @@ body {
 /* App mockup structure.
    `background: var(--canvas)` is the fallback behind #theme-bg so concepts
    without a wallpaper (solid/gradient themes) still have a canvas base. */
-/* 16:10-ish aspect (closer to a real desktop window). Desktop DestinCode
-   windows sit around 1.5–1.6 ratio, which better reflects what the user
-   will see in the app than the old phone-ish 420×520 (0.81). */
+/* 16:9 — a maximized YouCoded window on a normal display. 16:10 read visibly
+   narrow once the concept page started showing one large preview instead of
+   three small cards. */
 .app-mockup {
   width: 100%;
   max-width: 560px;
-  aspect-ratio: 16 / 10;
+  aspect-ratio: 16 / 9;
   border-radius: var(--radius-lg, 12px);
   overflow: hidden;
   display: flex;
@@ -271,13 +772,18 @@ body {
   border: 1px solid var(--edge-dim);
   position: relative;
   background: var(--canvas);
+  /* The mockup must read the THEME's font itself. Custom properties inherit
+     downward, so --font-sans set on this element never reaches `body`, and the
+     mockup was silently inheriting whatever the host page's body font was — in
+     the Kit editor that's the editor's own chrome font, so the typography
+     switcher appeared to do nothing at all. */
+  font-family: var(--font-sans, 'Cascadia Mono', 'Fira Code', monospace);
 }
 .header-bar {
   display: flex;
   align-items: center;
   padding: 10px 14px;
-  background: var(--panel);
-  border-bottom: 1px solid var(--edge);
+  /* No background/border here — see "Chrome bar surfaces" above. */
   font-size: 12px;
   font-weight: 600;
   color: var(--fg);
@@ -343,14 +849,13 @@ body {
   padding: 6px 8px;
   border-radius: var(--radius-sm, 4px);
   background: var(--inset);
-  font-size: 10px;
+  font-size: var(--text-3xs, 10px);
   color: var(--fg-dim);
   border: 1px solid var(--edge-dim);
 }
 .input-bar-container {
   padding: 4px 8px 6px;
-  background: var(--panel);
-  border-top: 1px solid var(--edge-dim);
+  /* No background/border here — see "Chrome bar surfaces" above. */
   flex-shrink: 0;
 }
 .input-bar-container .input-form {
@@ -376,7 +881,7 @@ body {
   background: transparent;
   border: none;
   color: var(--fg-muted);
-  font-size: 11px;
+  font-size: var(--text-2xs, 11px);
   font-family: inherit;
 }
 .input-bar-container .send-btn {
@@ -397,9 +902,8 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 4px 8px;
-  background: var(--panel);
-  border-top: 1px solid var(--edge-dim);
-  font-size: 10px;
+  /* No background/border here — see "Chrome bar surfaces" above. */
+  font-size: var(--text-3xs, 10px);
   color: var(--fg-muted);
   flex-shrink: 0;
   position: relative;
@@ -427,6 +931,29 @@ body {
   opacity: 0;
 }
 
+/* Mockup-scoped: same treatment as #theme-bg — absolute inside the bounded box,
+   sitting just above the wallpaper and below chat content. The div was styled
+   here but never actually emitted, so pattern overlays were invisible in every
+   preview; mockup-render now renders it. */
+.app-mockup #theme-pattern {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-repeat: repeat;
+}
+
+/* Particle canvas. The app animates particles on a full-window <canvas>
+   (ThemeEffects.tsx); this is the same idea scoped to the mockup box, so a
+   theme's particles are actually previewable instead of being described in a
+   caption. Above the wallpaper/pattern, below the chrome and chat. */
+.app-mockup .theme-particles {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    Visual effects — vignette, noise, scan-lines
    Applied via overlay divs in the mockup. Theme manifest fields:
@@ -436,7 +963,7 @@ body {
 .effect-vignette {
   position: absolute;
   inset: 0;
-  z-index: 2;
+  z-index: 30;
   pointer-events: none;
   background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0, var(--vignette-opacity, 0)) 100%);
 }
@@ -444,7 +971,7 @@ body {
 .effect-noise {
   position: absolute;
   inset: 0;
-  z-index: 2;
+  z-index: 30;
   pointer-events: none;
   opacity: var(--noise-opacity, 0);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
@@ -454,7 +981,7 @@ body {
 .effect-scanlines {
   position: absolute;
   inset: 0;
-  z-index: 2;
+  z-index: 30;
   pointer-events: none;
   opacity: var(--scanline-opacity, 0.08);
   background: repeating-linear-gradient(
@@ -466,13 +993,25 @@ body {
   );
 }
 
-/* Ensure panels render above pattern overlay */
+/* Layering, in the app's order.
+
+   Chat content sits at z-1: above the pattern overlay, but BELOW chrome-glass
+   (z-10) — that's deliberate, it's what the glass frosts as content scrolls
+   under the chrome.
+
+   The interactive bars sit at z-20, ABOVE chrome-glass. This used to be z-1,
+   which was sufficient when the only thing to outrank was the pattern overlay.
+   Once chrome-glass arrived at z-10 it painted straight over the gear, session
+   pill, and window buttons — the header rendered as an empty panel strip. */
+.app-mockup .chat-area {
+  position: relative;
+  z-index: 1;
+}
 .app-mockup .header-bar,
-.app-mockup .chat-area,
 .app-mockup .input-bar-container,
 .app-mockup .status-bar {
   position: relative;
-  z-index: 1;
+  z-index: 20;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -523,12 +1062,22 @@ body {
   min-width: 0;
   overflow: hidden;
 }
+/* Centered via an in-flow flex-1 wrapper, matching HeaderBar.tsx
+   (`flex-1 min-w-0 flex justify-center`).
+
+   This used to be position:absolute + translate(-50%,-50%), which centers on
+   the whole bar and therefore OVERLAPS the side clusters — visible on macOS,
+   where the view toggle moves into the right cluster and collided with the
+   session pill. An in-flow wrapper reserves its own space, so the pill shrinks
+   (min-width:0 + overflow) instead of colliding. */
+.app-mockup .header-center {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+}
 .app-mockup .header-bar .session-strip {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  max-width: 55%;
+  max-width: 100%;
 }
 .session-pill {
   display: inline-flex;
@@ -538,7 +1087,7 @@ body {
   background: transparent;
   border-radius: var(--radius-full, 9999px);
   padding: 1px 8px 1px 6px;
-  font-size: 11px;
+  font-size: var(--text-2xs, 11px);
   font-weight: 500;
   color: var(--fg-2);
   cursor: pointer;
@@ -591,11 +1140,11 @@ body {
   align-items: center;
   gap: 4px;
   padding: 3px 8px;
-  border-radius: calc(var(--radius-md, 8px) - 2px);
+  border-radius: var(--radius-toggle);
   border: none;
   background: transparent;
   color: var(--fg-dim);
-  font-size: 11px;
+  font-size: var(--text-2xs, 11px);
   font-weight: 500;
   cursor: pointer;
 }
@@ -649,7 +1198,7 @@ body {
   align-items: center;
   gap: 4px;
   padding: 1px 6px;
-  font-size: 9px;
+  font-size: var(--text-4xs, 9px);
   font-weight: 500;
   letter-spacing: 0.2px;
   border-radius: var(--radius-sm, 4px);
@@ -734,7 +1283,7 @@ body {
   background-position: center;
 }
 .concept-card .asset-preview-label {
-  font-size: 9px;
+  font-size: var(--text-4xs, 9px);
   color: var(--fg-faint);
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -742,7 +1291,7 @@ body {
 
 /* Vibe tags */
 .concept-card .concept-label {
-  font-size: 10px;
+  font-size: var(--text-3xs, 10px);
   color: var(--fg-muted);
   display: flex;
   flex-wrap: wrap;

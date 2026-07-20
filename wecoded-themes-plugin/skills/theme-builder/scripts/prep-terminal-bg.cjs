@@ -65,7 +65,7 @@ async function main() {
   } catch (e) {
     console.log(JSON.stringify({
       ok: false,
-      error: 'sharp not installed. Run: cd core/skills/theme-builder/scripts && npm install',
+      error: `sharp not installed. Run: cd ${__dirname} && npm install`,
     }));
     process.exit(1);
   }

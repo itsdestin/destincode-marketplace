@@ -52,21 +52,48 @@ Most themes use a wallpaper. **Always recommend the user provide their own** —
 
 ## Phase 1 — Concept Browser
 
+> **`${SKILL}` in this file** means this skill's own directory — the one
+> containing `SKILL.md`. Resolve it once (the skill lives under the installed
+> plugin, e.g. `~/.claude/plugins/marketplaces/youcoded/plugins/wecoded-themes-plugin/skills/theme-builder`)
+> and use it for every path below. These paths previously read
+> `core/skills/theme-builder/...`, a layout that has not existed since the
+> WeCoded rebrand — every command in this file silently pointed at nothing.
+
 ### Step 1: Start the Visual Companion Server
 
 ```bash
-bash "core/skills/theme-builder/scripts/start-server.sh" --project-dir ~/.claude/wecoded-themes
+bash "${SKILL}/scripts/start-server.sh" --project-dir ~/.claude/wecoded-themes
 ```
 
 Use `run_in_background: true`. Read the `server-info` file after 3 seconds.
 
+`--project-dir` does double duty: it's where the session dir lives AND where the
+live preview writes (`<project-dir>/_preview`). Point it at
+`~/.claude/wecoded-themes` unless you're testing, in which case a scratch dir
+keeps the user's real app out of it entirely.
+
 ### Step 2: Stage Assets for Preview Server
 
 ```bash
-cp core/skills/theme-builder/theme-preview.css "${screen_dir}/theme-preview.css"
-cp core/skills/theme-builder/scripts/helper.js "${screen_dir}/helper.js"
-cp core/skills/theme-builder/scripts/layout-gallery.html "${screen_dir}/layout-gallery.html"
+cp ${SKILL}/theme-preview.css        "${screen_dir}/"
+cp ${SKILL}/scripts/kit-page.css     "${screen_dir}/"
+cp ${SKILL}/scripts/helper.js        "${screen_dir}/"
+cp ${SKILL}/scripts/mockup-render.js "${screen_dir}/"
 ```
+
+`layout-gallery.html` is deliberately NOT staged. It is an orphan — nothing
+links to it, no step serves it, and it still advertises the `terminal` chrome
+option that was removed on 2026-07-19. Copying it into every session put a stale
+page one URL guess away from the user. The file is kept, unstaged, pending a
+decision on whether a standalone layout chooser is still wanted.
+
+`mockup-render.js` is REQUIRED — `concept-page-template.html` loads it and every
+`.app-mockup` renders blank without it. It was missing from this list until
+2026-07-19, so the first concept page of every session came up empty.
+
+`kit-page.css` is REQUIRED here too: the concept page uses the same `--ui-*`
+chrome as the Kit so Phase 1 and Phase 1.5 read as one product. Load order
+matters — `theme-preview.css` first, `kit-page.css` second.
 
 All HTML links CSS via `<link rel="stylesheet" href="/files/theme-preview.css">` — do NOT embed CSS inline. All asset refs in HTML use the `/files/` prefix (bare filenames 404).
 
@@ -150,56 +177,119 @@ Fallback if user reports no change: **rename `_preview` → final-slug immediate
 
 ### Step 5b: Stage the Kit Page
 
+**Copy every file verbatim. There are no placeholders to fill.**
+
 ```bash
-cp core/skills/theme-builder/scripts/kit-refinement-template.html "${screen_dir}/screen.html"
-cp core/skills/theme-builder/scripts/kit-presets.json "${screen_dir}/kit-presets.json"
+cp ${SKILL}/scripts/kit-refinement-template.html "${screen_dir}/screen.html"
+cp ${SKILL}/scripts/kit-presets.json   "${screen_dir}/"
+cp ${SKILL}/scripts/kit-page.css       "${screen_dir}/"
+cp ${SKILL}/scripts/kit-page.js        "${screen_dir}/"
+cp ${SKILL}/scripts/kit-state.js       "${screen_dir}/"
+cp ${SKILL}/scripts/contrast-rules.js  "${screen_dir}/"
+# Palette presets are served individually so the page can apply one on click.
+for f in ${SKILL}/scripts/palettes/*.json; do
+  b=$(basename "$f" .json); [ "$b" = "README" ] || cp "$f" "${screen_dir}/palette-$b.json"
+done
 ```
 
-Fill placeholders in `screen.html`:
+Then write ONE file: **`${screen_dir}/kit-state.json`** (schema below).
 
-- `<!-- THEME_NAME -->` — concept's display name
-- `<!-- GOOGLE_FONTS -->` — `<link>` tags for the concept's font
-- `<!-- CURRENT_MOCKUP -->` — one `<div class="app-mockup" data-mockup …>` with selected concept's data-attrs + glass vars (identical shape to concept card mockups)
-- Each preset-kind column: `data-current="<preset-id>"` on the `<section>`, fill `CURRENT_<COL>_NAME` / `CURRENT_<COL>_BLURB`. Preset ids from `kit-presets.json` (e.g. `warm-cozy`, `floating`, `pill`, `nunito`). Use `custom` if concept matches no preset — no card gets green-highlighted.
-- `effects` column: `data-current-particles="<id>"` + `data-current-overlays="vignette,noise"` (comma-separated currently-on overlays)
-- `<!-- WALLPAPER_PREVIEW -->` — `<img src="/files/wallpaper.<ext>">`
-- `<!-- MASCOT_PREVIEW -->` — 4 `.asset-tile` divs wrapping mascot SVGs. Leave empty or set `data-hidden="true"` on the column if no mascots.
-- `<!-- ICONS_PREVIEW -->` — icon tiles + cursor + scrollbar strip. Hide column if none.
+That's the whole job. The page renders itself from `kit-state.json` +
+`kit-presets.json` at load. Until 2026-07-19 this step meant hand-filling ~20
+placeholders in a ~24KB document, and every subsequent tweak meant rewriting the
+whole thing; the page is now static and you write ~1.2KB of JSON instead.
 
-Everything else renders from `kit-presets.json` at page load — don't inline preset cards.
+**Never edit the HTML to change a theme.** If you find yourself doing that,
+you're fighting the design — change `kit-state.json`.
 
-### Step 5c: Process Kit Submissions
+### The `kit-state.json` schema
 
-Kit sends a `kit-submit` WebSocket event:
+kit-state is a **theme manifest plus a `_kit` block** — not a parallel schema.
+`kit-state.js` turns it into a manifest by stripping `_kit`, forcing the slug,
+and prefixing asset paths. Keeping the shapes identical means there's only one
+thing to keep in sync.
 
-```json
+```jsonc
 {
-  "type": "kit-submit",
-  "intent": "rebuild" | "build",
-  "changes": {
-    "palette":  { "action": "preset"|"override"|"keep", "value": "<preset-id>", "note": "..." },
-    "chrome":   { ... },
-    "bubble":   { ... },
-    "font":     { ... },
-    "effects":  { "action": "preset", "particles": "<id>", "overlays": ["vignette","noise"], "note": "..." },
-    "wallpaper":{ "action": "keep"|"change", "note": "brighter, wider" },
-    "mascots":  { ... },
-    "icons":    { ... }
-  }
+  "_kit": {
+    "version": 1,
+    "revision": 1,               // BUMP THIS whenever you rewrite the file. The
+                                 // page keeps the user's in-progress edits in
+                                 // sessionStorage across the reloads your asset
+                                 // writes trigger, and only lets your version
+                                 // win when revision is newer. Forget it and a
+                                 // regenerated wallpaper is silently discarded.
+    "themeName": "Ivory Schematic",
+    "finalSlug": "ivory-schematic",  // Phase-2 target. NEVER write this as `slug`.
+
+    // FOUR palettes YOU derive from this theme's wallpaper. These are the
+    // primary palette cards; kit-presets.json's stock six sit behind a "Show
+    // stock palettes" disclosure. Generate them — a stock palette almost never
+    // suits a specific image, which is the whole reason this field exists.
+    // Give them genuinely different readings of the SAME image (e.g. light
+    // paper / dark archival / cool neutral / low-contrast soft), not four
+    // tints of one idea. Each needs the full 15 tokens, and each MUST pass
+    // `check-contrast.cjs --tokens-json -` before you write it.
+    "customPalettes": [
+      { "id": "wp-ivory", "name": "Ivory Field",
+        "blurb": "Paper cream and bronze, straight from the sketch",
+        "swatches": ["#EDE8DD","#E3DCCB","#D2C6AA","#7A5A2E","#2B2318"], // canvas,panel,inset,accent,fg
+        "tokens": { /* all 15 */ } }
+      // …three more
+    ],
+
+    "selected": { "palette": "wp-ivory", "chrome": "default",
+                  "bubble": "bordered", "font": "nunito", "particles": "ember" },
+    "reviewAssets": { "wallpaper": "wallpaper.jpeg", "mascots": [], "icons": {} },
+    "scanlineIntensity": 1       // multiplier on the 0.08 CSS base
+  },
+
+  "name": "Ivory Schematic",
+  "slug": "_preview",            // literal, always, while previewing
+  "dark": false,
+  "tokens": { /* all 15 */ },
+  "shape":  { "radius": "4px", "radius-sm": "4px", "radius-md": "6px",
+              "radius-lg": "10px", "radius-full": "9999px" },
+  "font":   { "family": "'Space Grotesk', 'Cascadia Mono', monospace",
+              "google-font-url": "https://fonts.googleapis.com/css2?family=..." },
+  "background": { "type": "image", "value": "wallpaper.jpeg",  /* BASENAME */
+                  "panels-blur": 10, "panels-opacity": 0.78,
+                  "bubble-blur": 8, "bubble-opacity": 0.9 },
+  "layout": { "chrome-style": "default", "input-style": "default",
+              "bubble-style": "bordered", "header-style": "default",
+              "statusbar-style": "default" },
+  "effects": { "particles": "ember", "vignette": 0.12, "noise": 0, "scan-lines": false },
+  "custom_css": "::selection { background: rgba(122,90,46,0.3); }"
 }
 ```
 
-Events appear in server stdout as `{"source":"user-event", "type":"kit-submit", ...}`. Read the server log to see submissions.
+**Asset paths are BARE BASENAMES.** The two consumers need different prefixes —
+`assets/` for the manifest the app reads, `/files/` for the preview server — so
+the transform adds them. Writing `assets/wallpaper.jpeg` here yields
+`assets/assets/wallpaper.jpeg`.
 
-On `intent: "rebuild"`:
-1. For each `action === "preset"` — apply matching preset from `kit-presets.json` to `_preview/manifest.json`. Palette preset → copy tokens + shape + suggested font. Chrome preset → copy `layout` sub-object. Bubble → set `layout.bubble-style`. Font → set `font.family` + `font.google-font-url`.
-2. For each `action === "override"` (preset kinds) or `action === "change"` (review kinds) — interpret `note` and regenerate that slice. Palette override → new 15-token set (pipe through `check-contrast.cjs --tokens-json -`; see `reference/tokens.md`). Mascot change → regenerate 4 SVGs per `reference/mascots.md`. Wallpaper change → fetch via `fetch-wallpaper.cjs`.
-3. Re-copy updated assets to `screen_dir` so `/files/` serves fresh content.
-4. Rewrite `screen.html` with updated `data-current` attrs + preview blocks. File-watcher auto-reloads the browser.
+### Step 5c: Handle Kit requests
 
-On `intent: "build"` → proceed to Phase 2. **Read `reference/phase2-finalize.md`.**
+**There is no Rebuild button and no `kit-submit` event.** Presets, colour
+pickers and sliders apply live in the browser and write the live preview
+themselves. You are only involved for work the page cannot do:
 
-**Escape hatch:** if user explicitly asks to "show me more options," copy `concept-page-template.html` back over `screen.html` and regenerate concepts. Default flow stays on Kit.
+| Event | Meaning | What to do |
+|---|---|---|
+| `{"type":"kit-request","kind":"wallpaper","note":"...","state":{…}}` | needs new art | fetch via `fetch-wallpaper.cjs`, write to `_preview/assets/` + `screen_dir`, bump `_kit.revision`, rewrite `kit-state.json` |
+| `…"kind":"mascots"` | redraw mascots | read `reference/mascots.md`, regenerate 4 SVGs, same write pattern |
+| `…"kind":"icons"` | redraw icons | regenerate the named slots, same write pattern |
+| `{"type":"kit-build","state":{…}}` | ship it | Phase 2 — **read `reference/phase2-finalize.md`** |
+
+Events appear in server stdout as `{"source":"user-event", …}`. Read the server
+log to see them.
+
+`kit-build` carries the FINAL state, so Phase 2 is one read and one write rather
+than reconstructing anything.
+
+**Escape hatch:** if the user asks to "show me more options," copy
+`concept-page-template.html` back over `screen.html` and regenerate concepts.
+Default flow stays on Kit.
 
 ---
 
@@ -234,7 +324,7 @@ After the pack is written, refinements go directly to manifest or asset files; a
 - When generating mascots, ALWAYS read base templates first for silhouette/proportions AND follow `reference/mascots.md`. The base templates' currentColor-fill + cutout-eye pattern fails on most themes.
 - Preview CSS (`theme-preview.css`) and app's `globals.css` are a CONTRACT — if either changes, both must stay in sync
 - NEVER write the concepts page HTML from scratch — always read `scripts/concept-page-template.html` first and fill placeholders
-- NEVER write the Kit page HTML from scratch — copy `scripts/kit-refinement-template.html` and fill placeholders. The template renders preset cards from `kit-presets.json` at runtime — do NOT inline preset cards.
+- NEVER write or edit the Kit page HTML. Copy `scripts/kit-refinement-template.html` VERBATIM and write `kit-state.json` instead — the page renders itself from JSON at load. Editing the markup to change a theme means you've misread the design.
 
 ---
 
@@ -254,29 +344,30 @@ After the pack is written, refinements go directly to manifest or asset files; a
 - [ ] Concept pick seeded into `_preview/manifest.json` (tokens + shape + layout + font + effects)
 - [ ] Baseline assets generated into BOTH `_preview/assets/` AND `screen_dir`: wallpaper, mascots (if applicable), icons (if applicable), pattern (if applicable)
 - [ ] Mascots (if generated) follow `reference/mascots.md`
-- [ ] `kit-refinement-template.html` → `screen_dir/screen.html` and `kit-presets.json` → `screen_dir/kit-presets.json`
-- [ ] Placeholders filled: THEME_NAME, GOOGLE_FONTS, CURRENT_MOCKUP, every column's `data-current` + current name/blurb, review columns' asset preview tiles
-- [ ] Columns with no corresponding assets hidden with `data-hidden="true"`
-- [ ] Preset cards NOT inlined — page renders them from kit-presets.json at load time
+- [ ] All SEVEN page files copied VERBATIM into `screen_dir`: `kit-refinement-template.html`→`screen.html`, `kit-presets.json`, `kit-page.css`, `kit-page.js`, `kit-state.js`, `contrast-rules.js`, and `palettes/*.json` as `palette-<id>.json`
+- [ ] `kit-state.json` written — `slug` is the literal `"_preview"`, `_kit.finalSlug` holds the real one, asset values are BARE BASENAMES
+- [ ] `_kit.customPalettes` holds FOUR wallpaper-derived palettes, each with all 15 tokens, each contrast-checked, each a genuinely different reading of the image — not four tints of one
+- [ ] The page shows a loading screen until `kit-state.json` exists and parses, so it's safe to hand over the URL before you've finished writing assets
+- [ ] NO placeholders filled and NO markup edited — if you edited the HTML, you're doing it wrong
 
-**When processing kit-submit (Phase 1.5 rebuild):**
-- [ ] Only columns with `action !== "keep"` are regenerated
-- [ ] Palette overrides piped through `check-contrast.cjs --tokens-json -` before applying (see `reference/tokens.md`)
+**When handling a kit-request (Phase 1.5):**
+- [ ] Only the requested slice regenerated — the page handles everything else itself
+- [ ] Any new palette piped through `check-contrast.cjs --tokens-json -` (see `reference/tokens.md`)
 - [ ] Updated assets mirrored into BOTH `_preview/assets/` AND `screen_dir`
-- [ ] `screen.html` rewritten with new `data-current` attrs — file-watcher auto-reloads
+- [ ] `_kit.revision` BUMPED before rewriting `kit-state.json` — without it the page keeps its sessionStorage copy and your new asset is silently discarded
 
 **Before finalizing theme pack (Phase 2):**
-- [ ] Intent from latest kit-submit is `"build"` — user explicitly asked to ship
+- [ ] A `kit-build` event arrived — the user explicitly clicked Build, don't infer it
 - [ ] `reference/phase2-finalize.md` has been read
 - [ ] `scripts/manifest-template.jsonc` read before writing manifest.json
 - [ ] `scripts/custom-css-reference.md` read before writing custom CSS
 - [ ] Assets moved from `_preview/assets/` → `<slug>/assets/`; wallpaper also still in `screen_dir`
-- [ ] For image themes: `wallpaper-terminal.webp` baked via `prep-terminal-bg.cjs` AND manifest includes `background.terminal-value`
+- [ ] For image themes: `wallpaper-terminal.webp` baked via `prep-terminal-bg.cjs` AND manifest includes `background.terminal-value` — **needs `sharp`**: run `cd ${SKILL}/scripts && npm install` first, or it exits with `sharp not installed` and no output file
 - [ ] If mascots were regenerated, they follow `reference/mascots.md` (verified distinct at 24 px)
 - [ ] If the theme has mascots: `assets/mascot-rig.svg` authored per the "Mascot rig" section of `reference/mascots.md` + manifest `mascot.rig` set (flat variants kept)
 - [ ] Manifest uses relative asset paths only
 - [ ] Bubble blur/opacity are manifest fields, NOT hardcoded in `custom_css`
 - [ ] Wallpaper + pattern come from `background.value` / `background.pattern` — NOT from `body::before`/`body::after` in `custom_css`
 - [ ] `check-contrast.cjs` passes with no HARD or SURFACE failures
-- [ ] `preview.png` generated via `wecoded-themes/scripts/generate-previews.js <slug>` (Step 7.5) — fallback OK if Playwright unavailable
+- [ ] `preview.png` generated via `wecoded-themes/scripts/generate-previews.js <slug>` (Step 7.5) — **optional, and slow on a cold machine**: it needs a Playwright Chromium download (~150MB) that can take many minutes. If it isn't already installed, say so and offer to skip — the theme is fully usable without it (the Library card falls back to the wallpaper, and the publisher regenerates one at publish time). Do NOT silently block the build on it.
 - [ ] `_preview/` deleted after successful pack creation

@@ -1,91 +1,232 @@
 <!DOCTYPE html>
-<html>
+<html data-chrome-scheme="light">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Theme Concepts</title>
+  <!-- Same two sheets, same order, as the Kit page: kit-page.css must load
+       SECOND so its --ui-* chrome wins the page-wide rules theme-preview.css
+       sets (body, #theme-bg) without needing !important. Phase 1 and Phase 1.5
+       are now one visual system. -->
   <link rel="stylesheet" href="/files/theme-preview.css">
+  <link rel="stylesheet" href="/files/kit-page.css">
   <!-- GOOGLE_FONTS — Claude inserts <link> tags for each concept's Google Font here -->
   <style>
-    /* Concept browser page layout — neutral dark backdrop so all
-       themes are evaluated against the same background. */
-    body {
-      background: #1a1a1a;
-      margin: 0;
-      padding: 24px;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-    }
+    /* Page furniture only. Everything else comes from kit-page.css so this page
+       and the Kit look like the same product. Use --ui-* here, never theme
+       tokens: the concepts on this page each carry their own theme, and page
+       chrome must stay readable against all of them. */
+    .c-main { padding: 16px; max-width: 1500px; margin: 0 auto; }
 
-    .concept-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
-      gap: 24px;
-      max-width: 1400px;
+    .c-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    }
+    /* Each tab keeps its own swatches + name so you can still compare all three
+       at a glance without switching. */
+    .c-tab {
+      flex: 1 1 240px;
+      display: flex; flex-direction: column; gap: 6px;
+      padding: 10px 12px;
+      text-align: left; cursor: pointer; font: inherit;
+      background: var(--ui-panel);
+      border: 1px solid var(--ui-edge-dim);
+      border-radius: var(--ui-radius-lg);
+      transition: border-color .15s, background-color .15s;
+    }
+    .c-tab:hover { border-color: var(--ui-edge); }
+    .c-tab[aria-selected="true"] {
+      border-color: var(--ui-accent);
+      background: color-mix(in srgb, var(--ui-accent) 10%, var(--ui-panel));
+    }
+    .c-tab-head { display: flex; align-items: center; gap: 8px; }
+
+    /* Concept panel — the app's .layer-surface recipe, --ui-* scoped.
+       Deliberately holds NOTHING but the stage: the tab above it already shows
+       the name, swatches and vibe line, and repeating them here cost ~110px of
+       preview height for zero information. */
+    .c-card {
+      background: var(--ui-panel);
+      border: 1px solid var(--ui-edge);
+      border-radius: var(--ui-radius-xl);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, var(--ui-shadow-strength));
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      /* Shrink-wrap the stage so the panel's padding reads as an even border on
+         all four sides. A full-width panel around a centred 16:9 mockup left
+         big empty flanks and a thin top/bottom — the frame looked broken. */
+      width: fit-content;
+      max-width: 100%;
       margin: 0 auto;
     }
+    .c-card[hidden] { display: none; }
 
-    .page-header {
-      max-width: 1400px;
-      margin: 0 auto 20px;
-      color: #aaa;
-      font-size: 13px;
+    .c-letter {
+      flex-shrink: 0;
+      width: 20px; height: 20px;
+      border-radius: var(--ui-radius-full);
+      background: var(--ui-inset);
+      color: var(--ui-fg-2);
+      font-size: var(--ui-text-3xs);
+      display: inline-flex; align-items: center; justify-content: center;
     }
-    .page-header h1 {
-      font-size: 16px;
-      font-weight: 600;
-      color: #e0e0e0;
-      margin-bottom: 4px;
+    .c-tab[aria-selected="true"] .c-letter { background: var(--ui-accent); color: var(--ui-on-accent); }
+
+    /* Tabs only — the panel below carries no swatches of its own. */
+    .c-swatches { display: flex; gap: 3px; }
+    .c-swatches span {
+      width: 20px; height: 20px;
+      border-radius: var(--ui-radius-sm);
+      box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.15);
     }
 
-    /* Clickable concept cards for selection */
-    .concept-card {
-      cursor: pointer;
-      transition: box-shadow 0.15s, transform 0.15s;
+    /* The whole point of tabs: one preview, as large as the viewport allows.
+       Frame vars scale with it — they're absolute px, so a bigger stage with an
+       unchanged edge reads progressively thinner than the real window. */
+    .c-stage { padding: 16px; }
+    .c-stage .app-mockup {
+      /* Drive from HEIGHT, not width. .app-mockup is aspect-ratio 16/9, so a
+         1280px width implies 800px tall and the preview runs off the bottom of
+         the screen — you'd scroll to see the input bar, which defeats the point
+         of a big preview. Setting height and letting width derive keeps the
+         whole window visible at once. */
+      width: auto;
+      /* REQUIRED: theme-preview.css caps .app-mockup at max-width 560px for the
+         small card layout. Without this the height clamp below grows the box
+         while the width stays pinned at 560 — a tall skinny sliver. */
+      max-width: none;
+      /* NOTE: do NOT use `isolation: isolate` here to contain the chrome's
+         z-indexes. isolation creates a BACKDROP ROOT, which silently disables
+         every backdrop-filter inside the mockup — all glassmorphism dies. The
+         footer's own z-index handles the overlap instead. */
+      /* Height drives everything (aspect-ratio 16/9 derives the width), so all
+         three limits have to be expressed as heights — a max-WIDTH here would
+         fight the aspect ratio and squash the mockup instead of scaling it.
+           1. 100vh - 200px  → topbar + tabs + card padding + footer
+           2. 900px          → don't outgrow a real window on a tall display
+           3. (100vw-100px)*.5625 → the width limit, restated as a height (9/16) */
+      height: min(calc(100vh - 200px), 900px, calc((100vw - 100px) * 0.5625));
+      margin: 0 auto;
+      --frame-edge: 9px;
+      --frame-corner: 11px;
+      --right-pane-width: 340px;
     }
-    .concept-card:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+
+    .c-foot {
+      position: fixed; inset: auto 0 0 0;
+      z-index: 50;          /* above any mockup chrome that scrolls past it */
+      padding: 10px 18px;
+      background: var(--ui-panel);
+      border-top: 1px solid var(--ui-edge);
+      font-size: var(--ui-text-2xs);
+      color: var(--ui-fg-2);
     }
-    .concept-card.selected {
-      box-shadow: 0 0 0 3px #6c8aff, 0 4px 20px rgba(108,138,255,0.3);
+    .c-foot b { color: var(--ui-fg); font-weight: 600; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .c-tab { transition: none; }
     }
   </style>
 </head>
-<body>
+<body style="padding-bottom:52px">
 
-  <div class="page-header">
-    <h1><!-- PAGE_TITLE (e.g. "Cyberpunk Theme — 3 Concepts") --></h1>
-    <p>Click a concept to select it, then return to the terminal.</p>
+<div class="k-topbar">
+  <div class="k-title">
+    <!-- PAGE_TITLE (e.g. "Cyberpunk — 3 Concepts") -->
+    <small>Pick one to open the theme kit</small>
   </div>
-
-  <div class="concept-grid">
-    <!-- CONCEPT_CARDS — Claude inserts concept card divs here.
-         Each card is a .concept-card div with scoped CSS variables.
-         See SKILL.md Concept Card Rendering Spec for structure. -->
+  <div class="k-topbar-right">
+    <button class="k-btn k-btn-ghost k-btn-sm" id="k-scheme"
+            title="Page chrome only — does not change any concept">☀ light</button>
   </div>
+</div>
 
-  <!-- mockup-render.js expands every <div class="app-mockup" data-mockup …>
-       into the full canonical chrome (gear, session pill, view toggle,
-       attach/compass/send, model/permission/usage chips). Concepts only
-       need to author the outer .app-mockup with data-* attributes —
-       never duplicate the chrome HTML across concepts. -->
-  <script src="/files/mockup-render.js"></script>
-  <script src="/files/helper.js"></script>
-  <script>
-    // Wire concept cards to selection + brainstorm events.
-    // Cards use data-choice="A", "B", "C" etc.
-    document.querySelectorAll('.concept-card').forEach(card => {
-      card.addEventListener('click', () => {
-        // Deselect all, select this one
-        document.querySelectorAll('.concept-card').forEach(c => c.classList.remove('selected'));
-        card.classList.add('selected');
-        // Send choice event via brainstorm WebSocket
-        if (window.brainstorm) {
-          window.brainstorm.choice(card.dataset.choice, {
-            name: card.querySelector('h2')?.textContent?.trim() || ''
-          });
-        }
+<div class="c-main">
+  <div class="c-tabs" role="tablist" aria-label="Concepts">
+    <!-- CONCEPT_TABS — Claude inserts one .c-tab per concept here. -->
+  </div>
+  <div class="c-panels">
+    <!-- CONCEPT_CARDS — Claude inserts .c-card divs here.
+
+         Each card carries its OWN theme tokens as inline style, which the
+         .app-mockup inside inherits. Never write theme tokens to :root or body
+         — three themes share this page and page chrome must stay readable
+         against all of them.
+
+         See reference/concept-card.md for the tab + panel contract. -->
+  </div>
+</div>
+
+<div class="c-foot">Click a concept to select it, then return to the terminal. <b>Nothing is applied to your app yet.</b></div>
+
+<!-- mockup-render.js expands every <div class="app-mockup" data-mockup …> into
+     the canonical chrome. Concepts author only the outer div + data attributes;
+     never hand-write chrome HTML or hand-draw icons. -->
+<script src="/files/mockup-render.js"></script>
+<script src="/files/helper.js"></script>
+<script>
+  // Chrome light/dark for THIS PAGE only, mirroring the Kit's toggle. Persisted
+  // under the same key so the two pages agree.
+  (function () {
+    const btn = document.getElementById('k-scheme');
+    try {
+      const s = localStorage.getItem('kit-chrome-scheme');
+      if (s) {
+        document.documentElement.dataset.chromeScheme = s;
+        btn.textContent = s === 'dark' ? '☾ dark' : '☀ light';
+      }
+    } catch (e) { /* ignore */ }
+    btn.addEventListener('click', () => {
+      const next = document.documentElement.dataset.chromeScheme === 'dark' ? 'light' : 'dark';
+      document.documentElement.dataset.chromeScheme = next;
+      try { localStorage.setItem('kit-chrome-scheme', next); } catch (e) { /* ignore */ }
+      btn.textContent = next === 'dark' ? '☾ dark' : '☀ light';
+    });
+  })();
+
+  // Tabs swap which concept is on the big stage AND record the pick. Showing
+  // one at a time is what buys the large preview, and flipping between tabs in
+  // the same screen position is a better A/B than scanning three small cards.
+  (function () {
+    const tabs = [...document.querySelectorAll('.c-tab')];
+    const panels = [...document.querySelectorAll('.c-card')];
+    const byChoice = (v) => panels.find((p) => p.dataset.choice === v);
+
+    function select(tab, notify) {
+      tabs.forEach((t) => {
+        const on = t === tab;
+        t.setAttribute('aria-selected', String(on));
+        t.tabIndex = on ? 0 : -1;
+      });
+      panels.forEach((p) => { p.hidden = p.dataset.choice !== tab.dataset.choice; });
+      // Particles are per-panel canvases; a hidden canvas has zero size, so
+      // restart the newly visible one now that it can measure itself.
+      const panel = byChoice(tab.dataset.choice);
+      const mockup = panel && panel.querySelector('.app-mockup');
+      if (mockup && window.mockupRender && window.mockupRender.startParticles) {
+        window.mockupRender.startParticles(mockup, window.__conceptFx?.[tab.dataset.choice] || { preset: 'none' });
+      }
+      if (notify && window.brainstorm) {
+        window.brainstorm.choice(tab.dataset.choice, {
+          name: tab.querySelector('.c-tab-title')?.textContent?.trim() || '',
+        });
+      }
+    }
+
+    tabs.forEach((tab) => {
+      tab.addEventListener('click', () => select(tab, true));
+      tab.addEventListener('keydown', (e) => {
+        const i = tabs.indexOf(tab);
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); tabs[(i + 1) % tabs.length].focus(); tabs[(i + 1) % tabs.length].click(); }
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); tabs[(i - 1 + tabs.length) % tabs.length].focus(); tabs[(i - 1 + tabs.length) % tabs.length].click(); }
       });
     });
-  </script>
+
+    if (tabs[0]) select(tabs[0], false);  // show the first, don't record a pick
+  })();
+</script>
 </body>
 </html>

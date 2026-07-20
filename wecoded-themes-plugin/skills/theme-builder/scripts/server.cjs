@@ -534,6 +534,15 @@ function startServer() {
     );
     watcher.close();
     clearInterval(lifecycleCheck);
+    // Destroy live sockets, and hard-exit if close() still hasn't called back.
+    // server.close() waits for every connection to drain, and an open browser
+    // tab holds one indefinitely — observed 2026-07-19: the server logged its
+    // shutdown on idle timeout but the process stayed resident, listening to
+    // nothing, because a tab was still attached.
+    for (const socket of clients) { try { socket.destroy(); } catch (e) { /* already gone */ } }
+    clients.clear();
+    const hardExit = setTimeout(() => process.exit(0), 2000);
+    hardExit.unref();
     server.close(() => process.exit(0));
   }
 

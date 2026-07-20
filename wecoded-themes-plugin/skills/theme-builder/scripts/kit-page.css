@@ -509,6 +509,45 @@ body > #theme-bg { display: none; }
 .k-dock-sub { display: block; font-size: var(--ui-text-3xs); color: var(--ui-fg-dim); }
 .k-dock-actions { display: flex; gap: 8px; }
 
+/* ── Loading ─────────────────────────────────────────────────────────────── */
+
+.k-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ui-canvas);
+}
+.k-loading[hidden] { display: none; }
+.k-loading-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 28px 36px;
+  background: var(--ui-panel);
+  border: 1px solid var(--ui-edge);
+  border-radius: var(--ui-radius-xl);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, var(--ui-shadow-strength));
+  max-width: 420px;
+  text-align: center;
+}
+.k-loading-title { font-size: var(--ui-text-sm); color: var(--ui-fg); font-weight: 600; }
+.k-loading-sub { font-size: var(--ui-text-2xs); color: var(--ui-fg-dim); line-height: 1.5; }
+.k-spinner {
+  width: 22px; height: 22px;
+  border: 2px solid var(--ui-edge);
+  border-top-color: var(--ui-accent);
+  border-radius: 50%;
+  animation: k-spin 0.8s linear infinite;
+}
+@keyframes k-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .k-spinner { animation-duration: 2.4s; }
+}
+
 /* ── A11y ────────────────────────────────────────────────────────────────── */
 
 :where(button, a, input, textarea, summary, select, [tabindex]):focus-visible {

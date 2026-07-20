@@ -1,91 +1,173 @@
 <!DOCTYPE html>
-<html>
+<html data-chrome-scheme="light">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Theme Concepts</title>
+  <!-- Same two sheets, same order, as the Kit page: kit-page.css must load
+       SECOND so its --ui-* chrome wins the page-wide rules theme-preview.css
+       sets (body, #theme-bg) without needing !important. Phase 1 and Phase 1.5
+       are now one visual system. -->
   <link rel="stylesheet" href="/files/theme-preview.css">
+  <link rel="stylesheet" href="/files/kit-page.css">
   <!-- GOOGLE_FONTS — Claude inserts <link> tags for each concept's Google Font here -->
   <style>
-    /* Concept browser page layout — neutral dark backdrop so all
-       themes are evaluated against the same background. */
-    body {
-      background: #1a1a1a;
-      margin: 0;
-      padding: 24px;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-    }
+    /* Page furniture only. Everything else comes from kit-page.css so this page
+       and the Kit look like the same product. Use --ui-* here, never theme
+       tokens: the concepts on this page each carry their own theme, and page
+       chrome must stay readable against all of them. */
+    .c-main { padding: 16px; max-width: 1500px; margin: 0 auto; }
 
-    .concept-grid {
+    .c-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
-      gap: 24px;
-      max-width: 1400px;
-      margin: 0 auto;
+      grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+      gap: 16px;
     }
 
-    .page-header {
-      max-width: 1400px;
-      margin: 0 auto 20px;
-      color: #aaa;
-      font-size: 13px;
-    }
-    .page-header h1 {
-      font-size: 16px;
-      font-weight: 600;
-      color: #e0e0e0;
-      margin-bottom: 4px;
-    }
-
-    /* Clickable concept cards for selection */
-    .concept-card {
+    /* Concept card — the app's .layer-surface recipe, --ui-* scoped. */
+    .c-card {
+      background: var(--ui-panel);
+      border: 1px solid var(--ui-edge);
+      border-radius: var(--ui-radius-xl);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, var(--ui-shadow-strength));
+      overflow: hidden;
       cursor: pointer;
-      transition: box-shadow 0.15s, transform 0.15s;
+      transition: transform 0.2s, border-color 0.15s;
+      display: flex;
+      flex-direction: column;
     }
-    .concept-card:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    .c-card:hover { transform: translateY(-2px); border-color: var(--ui-accent); }
+    .c-card[aria-checked="true"] {
+      border-color: var(--ui-accent);
+      box-shadow: 0 0 0 2px var(--ui-accent), 0 8px 32px rgba(0, 0, 0, var(--ui-shadow-strength));
     }
-    .concept-card.selected {
-      box-shadow: 0 0 0 3px #6c8aff, 0 4px 20px rgba(108,138,255,0.3);
+
+    .c-card-head {
+      padding: 12px 14px 10px;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+    .c-card-title { font-size: var(--ui-text-sm); font-weight: 600; color: var(--ui-fg); }
+    .c-card-vibe  { font-size: var(--ui-text-2xs); color: var(--ui-fg-dim); line-height: 1.4; margin-top: 2px; }
+    .c-letter {
+      flex-shrink: 0;
+      width: 20px; height: 20px;
+      border-radius: var(--ui-radius-full);
+      background: var(--ui-inset);
+      color: var(--ui-fg-2);
+      font-size: var(--ui-text-3xs);
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .c-card[aria-checked="true"] .c-letter { background: var(--ui-accent); color: var(--ui-on-accent); }
+
+    .c-swatches { display: flex; gap: 3px; padding: 0 14px 10px; }
+    .c-swatches span {
+      width: 20px; height: 20px;
+      border-radius: var(--ui-radius-sm);
+      box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.15);
+    }
+
+    .c-tags { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 14px 12px; }
+    .c-tags span {
+      font-size: var(--ui-text-4xs);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 1px 6px;
+      border-radius: var(--ui-radius-full);
+      border: 1px solid var(--ui-edge-dim);
+      color: var(--ui-fg-muted);
+    }
+
+    .c-stage { padding: 0 14px 14px; }
+    .c-stage .app-mockup { max-width: 100%; }
+
+    .c-foot {
+      position: fixed; inset: auto 0 0 0;
+      padding: 10px 18px;
+      background: var(--ui-panel);
+      border-top: 1px solid var(--ui-edge);
+      font-size: var(--ui-text-2xs);
+      color: var(--ui-fg-2);
+    }
+    .c-foot b { color: var(--ui-fg); font-weight: 600; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .c-card { transition: border-color 0.15s; }
+      .c-card:hover { transform: none; }
     }
   </style>
 </head>
-<body>
+<body style="padding-bottom:52px">
 
-  <div class="page-header">
-    <h1><!-- PAGE_TITLE (e.g. "Cyberpunk Theme — 3 Concepts") --></h1>
-    <p>Click a concept to select it, then return to the terminal.</p>
+<div class="k-topbar">
+  <div class="k-title">
+    <!-- PAGE_TITLE (e.g. "Cyberpunk — 3 Concepts") -->
+    <small>Pick one to open the theme kit</small>
   </div>
-
-  <div class="concept-grid">
-    <!-- CONCEPT_CARDS — Claude inserts concept card divs here.
-         Each card is a .concept-card div with scoped CSS variables.
-         See SKILL.md Concept Card Rendering Spec for structure. -->
+  <div class="k-topbar-right">
+    <button class="k-btn k-btn-ghost k-btn-sm" id="k-scheme"
+            title="Page chrome only — does not change any concept">☀ light</button>
   </div>
+</div>
 
-  <!-- mockup-render.js expands every <div class="app-mockup" data-mockup …>
-       into the full canonical chrome (gear, session pill, view toggle,
-       attach/compass/send, model/permission/usage chips). Concepts only
-       need to author the outer .app-mockup with data-* attributes —
-       never duplicate the chrome HTML across concepts. -->
-  <script src="/files/mockup-render.js"></script>
-  <script src="/files/helper.js"></script>
-  <script>
-    // Wire concept cards to selection + brainstorm events.
-    // Cards use data-choice="A", "B", "C" etc.
-    document.querySelectorAll('.concept-card').forEach(card => {
-      card.addEventListener('click', () => {
-        // Deselect all, select this one
-        document.querySelectorAll('.concept-card').forEach(c => c.classList.remove('selected'));
-        card.classList.add('selected');
-        // Send choice event via brainstorm WebSocket
-        if (window.brainstorm) {
-          window.brainstorm.choice(card.dataset.choice, {
-            name: card.querySelector('h2')?.textContent?.trim() || ''
-          });
-        }
-      });
+<div class="c-main">
+  <div class="c-grid">
+    <!-- CONCEPT_CARDS — Claude inserts .c-card divs here.
+
+         Each card carries its OWN theme tokens as inline style, which the
+         .app-mockup inside inherits. Never write theme tokens to :root or body
+         — three themes share this page and page chrome must stay readable
+         against all of them.
+
+         See reference/concept-card.md for the card + data-attr contract. -->
+  </div>
+</div>
+
+<div class="c-foot">Click a concept to select it, then return to the terminal. <b>Nothing is applied to your app yet.</b></div>
+
+<!-- mockup-render.js expands every <div class="app-mockup" data-mockup …> into
+     the canonical chrome. Concepts author only the outer div + data attributes;
+     never hand-write chrome HTML or hand-draw icons. -->
+<script src="/files/mockup-render.js"></script>
+<script src="/files/helper.js"></script>
+<script>
+  // Chrome light/dark for THIS PAGE only, mirroring the Kit's toggle. Persisted
+  // under the same key so the two pages agree.
+  (function () {
+    const btn = document.getElementById('k-scheme');
+    try {
+      const s = localStorage.getItem('kit-chrome-scheme');
+      if (s) {
+        document.documentElement.dataset.chromeScheme = s;
+        btn.textContent = s === 'dark' ? '☾ dark' : '☀ light';
+      }
+    } catch (e) { /* ignore */ }
+    btn.addEventListener('click', () => {
+      const next = document.documentElement.dataset.chromeScheme === 'dark' ? 'light' : 'dark';
+      document.documentElement.dataset.chromeScheme = next;
+      try { localStorage.setItem('kit-chrome-scheme', next); } catch (e) { /* ignore */ }
+      btn.textContent = next === 'dark' ? '☾ dark' : '☀ light';
     });
-  </script>
+  })();
+
+  document.querySelectorAll('.c-card').forEach((card) => {
+    card.setAttribute('role', 'radio');
+    card.setAttribute('aria-checked', 'false');
+    card.tabIndex = 0;
+    const choose = () => {
+      document.querySelectorAll('.c-card').forEach((c) => c.setAttribute('aria-checked', String(c === card)));
+      if (window.brainstorm) {
+        window.brainstorm.choice(card.dataset.choice, {
+          name: card.querySelector('.c-card-title')?.textContent?.trim() || '',
+        });
+      }
+    };
+    card.addEventListener('click', choose);
+    card.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); choose(); }
+    });
+  });
+</script>
 </body>
 </html>

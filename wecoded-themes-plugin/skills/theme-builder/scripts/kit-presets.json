@@ -56,7 +56,7 @@
     {
       "id": "floating",
       "name": "Floating",
-      "blurb": "Header, input, and status bars float as detached rounded cards",
+      "blurb": "Bars become separate cards — the continuous frame goes away",
       "layout": { "chrome-style": "floating", "input-style": "floating", "header-style": "default", "statusbar-style": "default" }
     },
     {

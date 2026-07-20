@@ -75,15 +75,25 @@ keeps the user's real app out of it entirely.
 ### Step 2: Stage Assets for Preview Server
 
 ```bash
-cp ${SKILL}/theme-preview.css       "${screen_dir}/"
-cp ${SKILL}/scripts/helper.js       "${screen_dir}/"
+cp ${SKILL}/theme-preview.css        "${screen_dir}/"
+cp ${SKILL}/scripts/kit-page.css     "${screen_dir}/"
+cp ${SKILL}/scripts/helper.js        "${screen_dir}/"
 cp ${SKILL}/scripts/mockup-render.js "${screen_dir}/"
-cp ${SKILL}/scripts/layout-gallery.html "${screen_dir}/"
 ```
+
+`layout-gallery.html` is deliberately NOT staged. It is an orphan — nothing
+links to it, no step serves it, and it still advertises the `terminal` chrome
+option that was removed on 2026-07-19. Copying it into every session put a stale
+page one URL guess away from the user. The file is kept, unstaged, pending a
+decision on whether a standalone layout chooser is still wanted.
 
 `mockup-render.js` is REQUIRED — `concept-page-template.html` loads it and every
 `.app-mockup` renders blank without it. It was missing from this list until
 2026-07-19, so the first concept page of every session came up empty.
+
+`kit-page.css` is REQUIRED here too: the concept page uses the same `--ui-*`
+chrome as the Kit so Phase 1 and Phase 1.5 read as one product. Load order
+matters — `theme-preview.css` first, `kit-page.css` second.
 
 All HTML links CSS via `<link rel="stylesheet" href="/files/theme-preview.css">` — do NOT embed CSS inline. All asset refs in HTML use the `/files/` prefix (bare filenames 404).
 
@@ -211,7 +221,24 @@ thing to keep in sync.
                                  // regenerated wallpaper is silently discarded.
     "themeName": "Ivory Schematic",
     "finalSlug": "ivory-schematic",  // Phase-2 target. NEVER write this as `slug`.
-    "selected": { "palette": "warm-cozy", "chrome": "default",
+
+    // FOUR palettes YOU derive from this theme's wallpaper. These are the
+    // primary palette cards; kit-presets.json's stock six sit behind a "Show
+    // stock palettes" disclosure. Generate them — a stock palette almost never
+    // suits a specific image, which is the whole reason this field exists.
+    // Give them genuinely different readings of the SAME image (e.g. light
+    // paper / dark archival / cool neutral / low-contrast soft), not four
+    // tints of one idea. Each needs the full 15 tokens, and each MUST pass
+    // `check-contrast.cjs --tokens-json -` before you write it.
+    "customPalettes": [
+      { "id": "wp-ivory", "name": "Ivory Field",
+        "blurb": "Paper cream and bronze, straight from the sketch",
+        "swatches": ["#EDE8DD","#E3DCCB","#D2C6AA","#7A5A2E","#2B2318"], // canvas,panel,inset,accent,fg
+        "tokens": { /* all 15 */ } }
+      // …three more
+    ],
+
+    "selected": { "palette": "wp-ivory", "chrome": "default",
                   "bubble": "bordered", "font": "nunito", "particles": "ember" },
     "reviewAssets": { "wallpaper": "wallpaper.jpeg", "mascots": [], "icons": {} },
     "scanlineIntensity": 1       // multiplier on the 0.08 CSS base
@@ -319,6 +346,8 @@ After the pack is written, refinements go directly to manifest or asset files; a
 - [ ] Mascots (if generated) follow `reference/mascots.md`
 - [ ] All SEVEN page files copied VERBATIM into `screen_dir`: `kit-refinement-template.html`→`screen.html`, `kit-presets.json`, `kit-page.css`, `kit-page.js`, `kit-state.js`, `contrast-rules.js`, and `palettes/*.json` as `palette-<id>.json`
 - [ ] `kit-state.json` written — `slug` is the literal `"_preview"`, `_kit.finalSlug` holds the real one, asset values are BARE BASENAMES
+- [ ] `_kit.customPalettes` holds FOUR wallpaper-derived palettes, each with all 15 tokens, each contrast-checked, each a genuinely different reading of the image — not four tints of one
+- [ ] The page shows a loading screen until `kit-state.json` exists and parses, so it's safe to hand over the URL before you've finished writing assets
 - [ ] NO placeholders filled and NO markup edited — if you edited the HTML, you're doing it wrong
 
 **When handling a kit-request (Phase 1.5):**

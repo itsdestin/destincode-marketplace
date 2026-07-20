@@ -340,11 +340,43 @@
     }
   }
 
+  /**
+   * Palette cards come from two places: the wallpaper-derived set Claude wrote
+   * into _kit.customPalettes (primary — a stock palette rarely suits a specific
+   * image), and kit-presets.json's stock six behind a disclosure.
+   */
+  function paletteList(source) {
+    if (source === 'stock') return presets.palette || [];
+    return (state._kit && state._kit.customPalettes) || [];
+  }
+
+  function findPalette(id) {
+    return paletteList('custom').find((p) => p.id === id)
+        || paletteList('stock').find((p) => p.id === id)
+        || null;
+  }
+
   function renderPresets() {
     document.querySelectorAll('.k-section[data-kind="preset"]').forEach((sec) => {
       const col = sec.dataset.column;
-      const row = sec.querySelector('[data-preset-row]');
       const current = (state._kit.selected || {})[col];
+
+      if (col === 'palette') {
+        // Two rows, each with its own source.
+        sec.querySelectorAll('[data-preset-row]').forEach((row) => {
+          const list = paletteList(row.dataset.paletteSource);
+          row.innerHTML = list.map((p) => presetCard('palette', p, p.id === current)).join('');
+        });
+        // Hide the disclosure entirely if Claude wrote no custom set, so the
+        // stock palettes aren't buried behind a "show more" that is the only
+        // thing there.
+        const stockWrap = document.getElementById('k-stock-palettes');
+        if (stockWrap && paletteList('custom').length === 0) stockWrap.open = true;
+        updateSectionValue(sec);
+        return;
+      }
+
+      const row = sec.querySelector('[data-preset-row]');
       const list = presets[col] || [];
       row.innerHTML = list.map((p) => presetCard(col, p, p.id === current)).join('');
       updateSectionValue(sec);
@@ -394,8 +426,7 @@
       if ((state.effects || {})['scan-lines']) on.push('scanlines');
       text = [p === 'none' ? null : p, ...on].filter(Boolean).join(' + ') || 'none';
     } else if (col === 'palette') {
-      const id = (state._kit.selected || {}).palette;
-      const p = (presets.palette || []).find((x) => x.id === id);
+      const p = findPalette((state._kit.selected || {}).palette);
       text = p ? p.name : 'custom';
     } else if (col === 'font') {
       text = (state.font && state.font.family || '').split(',')[0].replace(/['"]/g, '') || 'custom';
@@ -452,32 +483,31 @@
 
   function applyPreset(col, id) {
     if (col === 'palette') {
-      const p = (presets.palette || []).find((x) => x.id === id);
+      const p = findPalette(id);
       if (!p) return;
-      // Preset palettes in kit-presets.json ship display swatches, not a full
-      // 15-token set, so pull the real tokens from the palettes/ starter file.
+
+      // COLOURS ONLY, from either source. The stock starter files also carry a
+      // `shape` block (radius-base/radius-round) and applying it meant picking a
+      // palette silently changed your corner rounding — a control that lives in
+      // its own section. Every control changes only what it names; that shape
+      // block is a suggestion for authors, not something a palette click imposes.
+      const commit = (tokens) => {
+        state.tokens = Object.assign({}, tokens);
+        state._kit.selected = Object.assign({}, state._kit.selected, { palette: id });
+        renderTokens();
+        markDirty('palette');
+        applyState();
+        schedulePreviewWrite(true);
+      };
+
+      // Custom palettes carry their tokens inline; stock ones only ship display
+      // swatches, so their full 15-token set comes from the staged starter file.
+      if (p.tokens) { commit(p.tokens); return; }
       fetch(`/files/palette-${id}.json`)
         .then((r) => (r.ok ? r.json() : null))
-        .then((data) => {
-          if (data && data.tokens) {
-            state.tokens = Object.assign({}, data.tokens);
-            if (data.shape) {
-              state.shape = state.shape || {};
-              if (data.shape['radius-base'] != null) {
-                state.shape.radius = data.shape['radius-base'] + 'px';
-                state.shape['radius-sm'] = data.shape['radius-base'] + 'px';
-                state.shape['radius-md'] = (data.shape['radius-base'] * 2) + 'px';
-              }
-              if (data.shape['radius-round'] != null) {
-                state.shape['radius-lg'] = data.shape['radius-round'] + 'px';
-              }
-            }
-            renderTokens();
-            applyState();
-            schedulePreviewWrite(true);
-          }
-        })
-        .catch(() => { /* palette file not staged — presets stay display-only */ });
+        .then((data) => { if (data && data.tokens) commit(data.tokens); })
+        .catch(() => { /* starter file not staged — card stays display-only */ });
+      return;
     } else if (col === 'chrome') {
       const p = (presets.chrome || []).find((x) => x.id === id);
       if (p && p.layout) state.layout = Object.assign({}, state.layout, p.layout);
@@ -500,8 +530,12 @@
   function onPresetClick(card) {
     const col = card.dataset.column;
     const id = card.dataset.presetId;
-    const group = card.closest('[data-preset-row]');
-    group.querySelectorAll('.k-preset').forEach((c) => {
+    // Palette spans two rows (custom + stock) but is one logical choice, so
+    // clear selection across the whole section rather than the clicked row.
+    const scope = col === 'palette'
+      ? card.closest('.k-section')
+      : card.closest('[data-preset-row]');
+    scope.querySelectorAll('.k-preset').forEach((c) => {
       c.setAttribute('aria-checked', String(c === card));
       c.tabIndex = c === card ? 0 : -1;
     });
@@ -740,10 +774,43 @@
 
   // ── Boot ──────────────────────────────────────────────────────────────────
 
+  /**
+   * Fetch a JSON file, tolerating "not written yet" AND "half written".
+   *
+   * The server can serve this page before Claude has finished writing
+   * kit-state.json and the assets, and a partially-written file parses as
+   * invalid JSON. Both used to surface as a permanently broken empty page, so
+   * poll until it's there and parses.
+   */
+  function fetchJsonWhenReady(url, { tries = 60, delay = 500 } = {}) {
+    return new Promise((resolve, reject) => {
+      let attempt = 0;
+      const sub = document.getElementById('k-loading-sub');
+      const tick = () => {
+        attempt++;
+        fetch(url, { cache: 'no-store' })
+          .then((r) => (r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`))))
+          .then((txt) => resolve(JSON.parse(txt)))   // throws while half-written
+          .catch((err) => {
+            if (attempt >= tries) {
+              reject(new Error(`${url} never became readable (${attempt} tries): ${err.message}`));
+              return;
+            }
+            // Only start narrating once it's slow enough for the user to wonder.
+            if (sub && attempt === 6) {
+              sub.textContent = 'Still generating — this can take a minute while Claude fetches a wallpaper and designs palettes.';
+            }
+            setTimeout(tick, delay);
+          });
+      };
+      tick();
+    });
+  }
+
   function boot() {
     Promise.all([
-      fetch('/files/kit-state.json').then((r) => r.json()),
-      fetch('/files/kit-presets.json').then((r) => r.json()),
+      fetchJsonWhenReady('/files/kit-state.json'),
+      fetchJsonWhenReady('/files/kit-presets.json'),
     ]).then(([fresh, p]) => {
       presets = p;
       state = restore(fresh);
@@ -769,6 +836,9 @@
       wire();
       updateDock();
 
+      const loading = document.getElementById('k-loading');
+      if (loading) loading.hidden = true;
+
       // NEVER auto-post on load: this page reloads on any content-dir change,
       // so auto-writing would clobber Claude's edits and build a reload loop.
       try {
@@ -782,6 +852,15 @@
       // loaded perfectly while a ReferenceError sat three frames down — a
       // hardcoded guess at a cause the code never verified.
       console.error('Kit boot failed:', err);
+      const loading = document.getElementById('k-loading');
+      if (loading) {
+        const sp = loading.querySelector('.k-spinner');
+        if (sp) sp.style.display = 'none';
+        const t = loading.querySelector('.k-loading-title');
+        const sub = loading.querySelector('.k-loading-sub');
+        if (t) t.textContent = 'Kit failed to start';
+        if (sub) sub.textContent = (err && err.message ? err.message : String(err)) + ' — full stack in the browser console (F12).';
+      }
       const st = document.getElementById('k-dock-status');
       if (st) {
         st.textContent = `Kit failed to start: ${err && err.message ? err.message : String(err)}`;

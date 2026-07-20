@@ -25,6 +25,18 @@
   change kit-state.json instead.
 -->
 
+<!-- Shown until kit-state.json exists AND parses. The server may serve this page
+     before Claude has finished writing the state + assets, and a half-written
+     file parses as invalid JSON — both cases used to surface as a broken empty
+     page. The boot loop polls instead. -->
+<div class="k-loading" id="k-loading">
+  <div class="k-loading-card">
+    <div class="k-spinner" aria-hidden="true"></div>
+    <div class="k-loading-title">Preparing your theme kit…</div>
+    <div class="k-loading-sub" id="k-loading-sub">Waiting for Claude to finish generating palettes and assets.</div>
+  </div>
+</div>
+
 <div class="k-topbar">
   <div class="k-title">
     <span id="k-theme-name">Loading…</span>
@@ -93,7 +105,17 @@
         </button>
       </h2>
       <div class="k-section-body">
-        <div class="k-preset-grid" data-preset-row role="radiogroup" aria-label="Palette preset"></div>
+        <!-- Palettes Claude derived from THIS theme's wallpaper. These lead
+             because a stock palette rarely suits a specific image. -->
+        <div class="k-preset-grid" data-preset-row data-palette-source="custom"
+             role="radiogroup" aria-label="Palette"></div>
+        <details class="k-fine" id="k-stock-palettes">
+          <summary>Show stock palettes<span class="k-count">6</span></summary>
+          <div class="k-fine-body">
+            <div class="k-preset-grid" data-preset-row data-palette-source="stock"
+                 role="radiogroup" aria-label="Stock palette"></div>
+          </div>
+        </details>
         <details class="k-fine">
           <summary>Fine-tune colours<span class="k-count">15 tokens</span></summary>
           <div class="k-fine-body" id="k-token-list"></div>

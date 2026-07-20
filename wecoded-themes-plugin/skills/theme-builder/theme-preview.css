@@ -571,6 +571,15 @@ body {
   backdrop-filter: blur(var(--panels-blur, 0)) saturate(1.2);
   -webkit-backdrop-filter: blur(var(--panels-blur, 0)) saturate(1.2);
 }
+/* The ::after carries the tint in blur mode, so the parent must NOT paint it
+   too. Stacking both meant framed chrome composited 0.78 over 0.78 — an
+   effective ~0.95 — while floating (one layer, one tint) stayed at 0.78. Same
+   declared opacity, visibly different result: framed read dense and flat,
+   floating read much more transparent, and switching between them looked like
+   the glass settings had changed when nothing had. Reported 2026-07-19. */
+.app-mockup[data-panels-blur] .chrome-glass {
+  background-color: transparent;
+}
 
 /* Right pane open: the cutout's right edge shifts left to leave room for
    outer edge + pane + divider. Shape is otherwise identical. */

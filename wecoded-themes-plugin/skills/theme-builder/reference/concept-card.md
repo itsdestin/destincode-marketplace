@@ -4,12 +4,44 @@ Read this file before generating the 3 concept cards in Phase 1. It documents th
 
 ## Per-card structure
 
-Each concept is a `.concept-card` div with `data-choice="A"` (or B, C). Set all CSS tokens as inline `style="--canvas: #HEX; ..."` on the scoping div. Inside each card:
+**Updated 2026-07-19** — the concept page now shares the Kit editor's chrome, so
+cards use `c-`-prefixed classes and `--ui-*` page chrome. The old
+`.concept-card` / `.concept-label` markup is gone.
 
-1. **Theme name** (`<h2>`) and **one-sentence vibe** (`<p>`)
-2. **Swatch row** — 5 color swatches (canvas, panel, inset, accent, fg)
-3. **Vibe tags** — `.concept-label` spans listing planned features (e.g. "floating input", "glassmorphism")
-4. **App mockup** — see below.
+Each concept is a `.c-card` div with `data-choice="A"` (or B, C). Set all the
+theme's CSS tokens as inline `style="--canvas: #HEX; …"` on that div — the
+`.app-mockup` inside inherits them. **Never write theme tokens to `:root` or
+`body`**: three themes share this page, and page chrome reads `--ui-*` and must
+stay legible against all of them.
+
+```html
+<div class="c-card" data-choice="A"
+     style="--canvas:#EDE8DD; --panel:#E3DCCB; --inset:#D2C6AA; --well:#CFC3A8;
+            --accent:#7A5A2E; --on-accent:#FFFFFF; --fg:#2B2318; --fg-2:#5A4E3B;
+            --fg-dim:#7C7058; --fg-muted:#9C9179; --fg-faint:#C4BCA5;
+            --edge:#A8987A; --edge-dim:#A8987A80; --shadow-strength:0.2;
+            --font-sans:'Space Grotesk', sans-serif;">
+  <div class="c-card-head">
+    <span class="c-letter" aria-hidden="true">A</span>
+    <div>
+      <div class="c-card-title">Ivory Schematic</div>
+      <div class="c-card-vibe">Light museum-card minimalism — blueprint on cream paper.</div>
+    </div>
+  </div>
+  <div class="c-swatches" aria-hidden="true">
+    <span style="background:#EDE8DD"></span><span style="background:#E3DCCB"></span>
+    <span style="background:#D2C6AA"></span><span style="background:#7A5A2E"></span>
+    <span style="background:#2B2318"></span>
+  </div>
+  <div class="c-tags"><span>light</span><span>bordered bubbles</span><span>Space Grotesk</span></div>
+  <div class="c-stage">
+    <div class="app-mockup" data-mockup …></div>
+  </div>
+</div>
+```
+
+Selection state is handled by the page (`aria-checked` on `.c-card`) — don't
+hand-write a selected class.
 
 ## App mockup (data-attribute contract)
 

@@ -54,6 +54,13 @@
   </div>
 </div>
 
+<!-- Shown only when this tab's saved edits won over the file Claude wrote.
+     Without it, a regenerated wallpaper or palette silently fails to appear. -->
+<div class="k-restored" id="k-restored" hidden>
+  <span>Showing your edits from this tab, not Claude's latest version.</span>
+  <button class="k-btn k-btn-ghost k-btn-sm" id="k-restored-reset">Reset to Claude's version</button>
+</div>
+
 <div class="k-main">
 
   <!-- ── Canvas ─────────────────────────────────────────────────────────── -->
@@ -285,6 +292,16 @@
       </h2>
       <div class="k-section-body">
         <div class="k-review" id="k-wallpaper-preview"></div>
+
+        <!-- Upload is LIVE (unlike the regenerate button below it): the image is
+             already on disk, so it applies to the preview — and to the app, if
+             live preview is on — without Claude in the loop. -->
+        <div class="k-upload" id="k-upload">
+          <input type="file" id="k-upload-input" accept="image/jpeg,image/png,image/webp,image/gif" hidden>
+          <button class="k-btn k-btn-secondary k-btn-sm" id="k-upload-btn">Upload an image…</button>
+          <span class="k-token-use" id="k-upload-hint">or drop one here — JPEG, PNG, WebP or GIF, up to 16MB</span>
+        </div>
+
         <div>
           <label class="k-label" for="n-wall">Describe a change</label>
           <textarea class="k-field" id="n-wall" data-note="wallpaper" rows="2"

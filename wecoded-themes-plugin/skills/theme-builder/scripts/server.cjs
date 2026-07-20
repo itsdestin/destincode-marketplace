@@ -123,8 +123,26 @@ function teardownPreview(reason) {
 const MIME_TYPES = {
   '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript',
   '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.svg': 'image/svg+xml'
+  '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.svg': 'image/svg+xml',
+  '.webp': 'image/webp'
 };
+
+// ── Wallpaper upload ────────────────────────────────────────────────────────
+const MAX_UPLOAD_BYTES = 16 * 1024 * 1024;  // a 4K JPEG is ~2-5MB; 16 is generous
+
+/** Accepted image types, each with the extension the SERVER will use and the
+ *  magic bytes that must actually be present. The extension never comes from
+ *  the client — see handleWallpaperPost. */
+const UPLOAD_TYPES = {
+  'image/jpeg': { ext: '.jpeg', magic: [[0xFF, 0xD8, 0xFF]] },
+  'image/png':  { ext: '.png',  magic: [[0x89, 0x50, 0x4E, 0x47]] },
+  'image/webp': { ext: '.webp', magic: [[0x52, 0x49, 0x46, 0x46]] },  // RIFF….WEBP
+  'image/gif':  { ext: '.gif',  magic: [[0x47, 0x49, 0x46, 0x38]] },
+};
+
+function magicMatches(buf, type) {
+  return UPLOAD_TYPES[type].magic.some((sig) => sig.every((b, i) => buf[i] === b));
+}
 
 // ========== Templates and Constants ==========
 
@@ -281,6 +299,100 @@ function handlePreviewPost(req, res) {
   req.on('error', () => { aborted = true; });
 }
 
+/**
+ * POST /wallpaper — accept an image the user picked from their own machine.
+ *
+ * Same shape as /preview: loopback-only, origin-checked, cap enforced during
+ * streaming. Two differences worth understanding:
+ *
+ *   1. THE FILENAME IS GENERATED HERE. Nothing from the request reaches the
+ *      path — not the original name, not the extension. The extension is chosen
+ *      from the Content-Type, and only after the magic bytes confirm the body
+ *      really is that format, so a mislabeled upload cannot land arbitrary
+ *      bytes under an image extension.
+ *   2. IT WRITES TO BOTH DIRS. CONTENT_DIR so `/files/<name>` serves it to the
+ *      mockup, and _preview/assets/ so the live app can load it — and so Phase
+ *      2's pack build finds it in the same place as Claude-generated art.
+ *
+ * A unique suffix per upload avoids the browser serving a cached image under a
+ * reused name, which would make a successful swap look like it did nothing.
+ */
+function handleWallpaperPost(req, res) {
+  if (!originAllowed(req)) {
+    return sendJson(res, 403, { ok: false, error: 'bad origin' });
+  }
+  const ctype = String(req.headers['content-type'] || '').toLowerCase().split(';')[0].trim();
+  const spec = UPLOAD_TYPES[ctype];
+  if (!spec) {
+    return sendJson(res, 415, {
+      ok: false,
+      error: `unsupported type "${ctype || 'none'}" (accepts ${Object.keys(UPLOAD_TYPES).join(', ')})`,
+    });
+  }
+
+  let size = 0;
+  const chunks = [];
+  let aborted = false;
+
+  req.on('data', (chunk) => {
+    if (aborted) return;
+    size += chunk.length;
+    if (size > MAX_UPLOAD_BYTES) {
+      aborted = true;
+      sendJson(res, 413, { ok: false, error: `too large (max ${MAX_UPLOAD_BYTES / 1024 / 1024}MB)` });
+      req.destroy();
+      return;
+    }
+    chunks.push(chunk);
+  });
+
+  req.on('end', () => {
+    if (aborted) return;
+    const buf = Buffer.concat(chunks);
+    if (buf.length === 0) {
+      return sendJson(res, 400, { ok: false, error: 'empty body' });
+    }
+    if (!magicMatches(buf, ctype)) {
+      return sendJson(res, 400, {
+        ok: false,
+        error: `body is not a valid ${ctype} (magic bytes do not match)`,
+      });
+    }
+
+    // Server-generated, so it cannot contain a path separator or traversal.
+    const name = `wallpaper-user-${Date.now().toString(36)}${spec.ext}`;
+
+    try {
+      // Atomic in CONTENT_DIR: the file watcher ignores image extensions, but a
+      // half-written file served to the mockup would render as a broken image.
+      const dest = path.join(CONTENT_DIR, name);
+      const tmp = path.join(CONTENT_DIR, '.' + name + '.tmp');
+      fs.writeFileSync(tmp, buf);
+      fs.renameSync(tmp, dest);
+
+      let inPreview = false;
+      if (PREVIEW_DIR) {
+        const assetsDir = path.join(PREVIEW_DIR, 'assets');
+        fs.mkdirSync(assetsDir, { recursive: true });
+        const aTmp = path.join(assetsDir, '.' + name + '.tmp');
+        fs.writeFileSync(aTmp, buf);
+        fs.renameSync(aTmp, path.join(assetsDir, name));
+        inPreview = true;
+      }
+
+      console.log(JSON.stringify({
+        type: 'wallpaper-uploaded', file: name, bytes: buf.length, in_preview: inPreview,
+      }));
+      sendJson(res, 200, { ok: true, file: name, bytes: buf.length, in_preview: inPreview });
+    } catch (e) {
+      console.error('wallpaper upload failed:', e.message);
+      sendJson(res, 500, { ok: false, error: 'write failed: ' + e.message });
+    }
+  });
+
+  req.on('error', () => { aborted = true; });
+}
+
 function handleRequest(req, res) {
   touchActivity();
   // Method-gated: a GET /preview still 404s.
@@ -292,6 +404,13 @@ function handleRequest(req, res) {
       return sendJson(res, 403, { ok: false, error: 'preview endpoint disabled on non-loopback bind' });
     }
     return handlePreviewPost(req, res);
+  }
+  if (req.method === 'POST' && req.url === '/wallpaper') {
+    // Same loopback rule as /preview — this one writes image files.
+    if (HOST !== '127.0.0.1') {
+      return sendJson(res, 403, { ok: false, error: 'upload endpoint disabled on non-loopback bind' });
+    }
+    return handleWallpaperPost(req, res);
   }
   if (req.method === 'GET' && req.url === '/') {
     const screenFile = getNewestScreen();

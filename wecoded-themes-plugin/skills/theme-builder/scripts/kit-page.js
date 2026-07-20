@@ -20,6 +20,10 @@
   let state = null;
   let presets = null;
   let stage = null;
+  // What Claude's kit-state.json said, kept aside when a sessionStorage copy
+  // wins the restore, so "Reset" has something to go back to.
+  let claudeState = null;
+  let restoredFromSession = false;
   const dirty = new Set();
 
   // ── Mockup application ────────────────────────────────────────────────────
@@ -480,13 +484,39 @@
     try { sessionStorage.setItem('kit-state', JSON.stringify(state)); } catch (e) { /* quota */ }
   }
 
+  /**
+   * Prefer the in-tab working copy over Claude's file, unless Claude's is newer.
+   *
+   * The failure this creates: if Claude rewrites kit-state.json WITHOUT bumping
+   * _kit.revision, the saved copy keeps winning and the user sees none of the
+   * new work — a regenerated wallpaper just doesn't appear, with nothing on
+   * screen explaining why. So stash the file version and expose a reset, rather
+   * than trusting every future rebuild to bump the counter.
+   */
   function restore(fresh) {
     let saved = null;
     try { saved = JSON.parse(sessionStorage.getItem('kit-state') || 'null'); } catch (e) { saved = null; }
     if (!saved || !saved._kit) return fresh;
     const savedRev = saved._kit.revision || 0;
     const freshRev = (fresh._kit && fresh._kit.revision) || 0;
-    return freshRev > savedRev ? fresh : saved;
+    if (freshRev > savedRev) return fresh;
+    claudeState = fresh;
+    restoredFromSession = true;
+    return saved;
+  }
+
+  /** Discard the in-tab edits and go back to what Claude last wrote. */
+  function resetToClaudeState() {
+    if (!claudeState) return;
+    state = JSON.parse(JSON.stringify(claudeState));
+    restoredFromSession = false;
+    applyState();
+    hydrateControls();
+    renderContrast();
+    persist();
+    schedulePreviewWrite();
+    const bar = document.getElementById('k-restored');
+    if (bar) bar.hidden = true;
   }
 
   // ── Wiring ────────────────────────────────────────────────────────────────
@@ -846,6 +876,13 @@
       wire();
       updateDock();
 
+      if (restoredFromSession) {
+        const bar = document.getElementById('k-restored');
+        const btn = document.getElementById('k-restored-reset');
+        if (bar) bar.hidden = false;
+        if (btn) btn.addEventListener('click', resetToClaudeState);
+      }
+
       const loading = document.getElementById('k-loading');
       if (loading) loading.hidden = true;
 
@@ -883,6 +920,102 @@
   }
 
   /** Seed every slider/toggle from state so the UI matches on first paint. */
+  function renderWallpaperReview() {
+    const wp = document.getElementById('k-wallpaper-preview');
+    if (!wp) return;
+    const bg = state.background || {};
+    if (bg.type === 'image' && bg.value) {
+      wp.innerHTML = `<img src="/files/${esc(bg.value)}" alt="current wallpaper">`;
+    } else {
+      wp.innerHTML = '<span class="k-token-use">No wallpaper — solid or gradient background.</span>';
+    }
+  }
+
+  /**
+   * Wallpaper upload. The file goes to the server (which owns the filename and
+   * writes it into both the served content dir and _preview/assets/), and the
+   * response's basename becomes background.value — the same shape a
+   * Claude-generated wallpaper has, so nothing downstream needs a special case.
+   *
+   * Deliberately NOT a data: URL or object URL in the mockup: the live app
+   * reads a real file from _preview/assets/, so anything that only existed in
+   * the browser would show a preview the app could never reproduce.
+   */
+  function wireWallpaperUpload() {
+    const zone = document.getElementById('k-upload');
+    const input = document.getElementById('k-upload-input');
+    const btn = document.getElementById('k-upload-btn');
+    const hint = document.getElementById('k-upload-hint');
+    if (!zone || !input || !btn || zone.dataset.wired) return;
+    zone.dataset.wired = '1';
+
+    const say = (msg, bad) => {
+      if (!hint) return;
+      hint.textContent = msg;
+      hint.classList.toggle('k-upload-error', !!bad);
+    };
+    const DEFAULT_HINT = hint ? hint.textContent : '';
+
+    async function send(file) {
+      if (!file) return;
+      say(`Uploading ${file.name}…`);
+      btn.disabled = true;
+      try {
+        const res = await fetch('/wallpaper', {
+          method: 'POST',
+          headers: { 'Content-Type': file.type },
+          body: file,
+        });
+        const out = await res.json().catch(() => ({}));
+        if (!res.ok || !out.ok) {
+          // Surface the SERVER's reason verbatim — a guessed cause here would
+          // send the user chasing the wrong thing (wrong format vs too large vs
+          // no preview dir are three different fixes).
+          say(out.error ? `Upload failed: ${out.error}` : `Upload failed (HTTP ${res.status})`, true);
+          return;
+        }
+        state.background = state.background || {};
+        state.background.type = 'image';
+        state.background.value = out.file;
+        if (state.background.opacity == null) state.background.opacity = 1;
+        state._kit = state._kit || {};
+        state._kit.reviewAssets = state._kit.reviewAssets || {};
+        state._kit.reviewAssets.wallpaper = out.file;
+
+        applyState();
+        renderWallpaperReview();
+        persist();
+        schedulePreviewWrite();
+        say(out.in_preview
+          ? `Applied ${file.name}.`
+          : `Applied ${file.name} to the preview (no theme dir, so the app was not updated).`);
+      } catch (e) {
+        say(`Upload failed: ${e.message}`, true);
+      } finally {
+        btn.disabled = false;
+        input.value = '';   // let the same file be re-picked after a failure
+      }
+    }
+
+    btn.addEventListener('click', () => input.click());
+    input.addEventListener('change', () => send(input.files && input.files[0]));
+
+    // Drag-and-drop onto the zone. dragover must preventDefault or the drop
+    // never fires — the browser navigates to the image instead.
+    ['dragenter', 'dragover'].forEach((ev) => zone.addEventListener(ev, (e) => {
+      e.preventDefault();
+      zone.classList.add('k-upload-over');
+    }));
+    ['dragleave', 'drop'].forEach((ev) => zone.addEventListener(ev, (e) => {
+      e.preventDefault();
+      zone.classList.remove('k-upload-over');
+    }));
+    zone.addEventListener('drop', (e) => {
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) send(f); else say(DEFAULT_HINT);
+    });
+  }
+
   function hydrateControls() {
     document.querySelectorAll('.k-slider').forEach((s) => {
       const parts = s.dataset.path.split('.');
@@ -902,12 +1035,8 @@
       const on = k === 'scan-lines' ? !!fx['scan-lines'] : !!fx[k];
       b.setAttribute('aria-pressed', String(on));
     });
-    const wp = document.getElementById('k-wallpaper-preview');
-    if (wp && state.background && state.background.type === 'image' && state.background.value) {
-      wp.innerHTML = `<img src="/files/${esc(state.background.value)}" alt="current wallpaper">`;
-    } else if (wp) {
-      wp.innerHTML = '<span class="k-token-use">No wallpaper — solid or gradient background.</span>';
-    }
+    wireWallpaperUpload();
+    renderWallpaperReview();
     try {
       const s = localStorage.getItem('kit-chrome-scheme');
       if (s) {

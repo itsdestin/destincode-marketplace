@@ -418,6 +418,42 @@ body > #theme-bg { display: none; }
 
 .k-review { display: flex; flex-wrap: wrap; gap: 8px; padding-bottom: 4px; }
 .k-review img { max-width: 100%; max-height: 130px; border-radius: var(--ui-radius-md); border: 1px solid var(--ui-edge-dim); }
+
+/* "Your edits are winning over Claude's file" notice. */
+.k-restored {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 6px 16px;
+  background: color-mix(in srgb, var(--ui-accent) 10%, var(--ui-panel));
+  border-bottom: 1px solid var(--ui-edge-dim);
+  font-size: var(--ui-text-2xs);
+  color: var(--ui-fg-2);
+}
+.k-restored[hidden] { display: none; }
+
+/* Wallpaper upload drop zone. Dashed edge reads as "drop target" without
+   needing a label to say so. */
+.k-upload {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px;
+  border: 1px dashed var(--ui-edge);
+  border-radius: var(--ui-radius-md);
+  transition: border-color .15s, background-color .15s;
+}
+.k-upload-over {
+  border-color: var(--ui-accent);
+  border-style: solid;
+  background: color-mix(in srgb, var(--ui-accent) 8%, transparent);
+}
+.k-upload .k-token-use { flex: 1 1 180px; }
+.k-upload-error { color: var(--ui-destructive, #B3261E); }
+
+@media (prefers-reduced-motion: reduce) { .k-upload { transition: none; } }
 .k-tile {
   width: 60px; height: 60px; padding: 6px;
   border-radius: var(--ui-radius-md);

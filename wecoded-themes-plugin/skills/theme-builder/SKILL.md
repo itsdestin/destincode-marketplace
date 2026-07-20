@@ -254,6 +254,16 @@ thing to keep in sync.
     // paper / dark archival / cool neutral / low-contrast soft), not four
     // tints of one idea. Each needs the full 15 tokens, and each MUST pass
     // `check-contrast.cjs --tokens-json -` before you write it.
+    //
+    // DON'T hand-tune the five text tokens to make that pass. Pick surfaces and
+    // accent for character, put any plausible text ramp in, and let
+    // `check-contrast.cjs <manifest> --fix` place the ramp — it solves in OKLCH
+    // against every surface the app paints on, including the glass composite.
+    // Hand-picking tokens and grading them afterwards is exactly what shipped
+    // unreadable secondary text in all 11 themes (2026-07-19); `fg-faint` had
+    // never once passed on a raised surface in any theme that ever shipped.
+    // If --fix reports UNSATISFIABLE, the surface ladder is too wide — move
+    // canvas/panel/inset/well closer together; no text colour can rescue it.
     "customPalettes": [
       { "id": "wp-ivory", "name": "Ivory Field",
         "blurb": "Paper cream and bronze, straight from the sketch",
@@ -396,6 +406,6 @@ After the pack is written, refinements go directly to manifest or asset files; a
 - [ ] Manifest uses relative asset paths only
 - [ ] Bubble blur/opacity are manifest fields, NOT hardcoded in `custom_css`
 - [ ] Wallpaper + pattern come from `background.value` / `background.pattern` — NOT from `body::before`/`body::after` in `custom_css`
-- [ ] `check-contrast.cjs` passes with no HARD or SURFACE failures
+- [ ] `node scripts/check-contrast.cjs <manifest.json> --fix` run — solves the ramp, writes `background.average-color`, then verifies. Must end with "All contrast checks passed."
 - [ ] `preview.png` generated via `wecoded-themes/scripts/generate-previews.js <slug>` (Step 7.5) — **optional, and slow on a cold machine**: it needs a Playwright Chromium download (~150MB) that can take many minutes. If it isn't already installed, say so and offer to skip — the theme is fully usable without it (the Library card falls back to the wallpaper, and the publisher regenerates one at publish time). Do NOT silently block the build on it.
 - [ ] `_preview/` deleted after successful pack creation

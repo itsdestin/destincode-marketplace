@@ -722,6 +722,12 @@ body {
   border: 1px solid var(--edge-dim);
   position: relative;
   background: var(--canvas);
+  /* The mockup must read the THEME's font itself. Custom properties inherit
+     downward, so --font-sans set on this element never reaches `body`, and the
+     mockup was silently inheriting whatever the host page's body font was — in
+     the Kit editor that's the editor's own chrome font, so the typography
+     switcher appeared to do nothing at all. */
+  font-family: var(--font-sans, 'Cascadia Mono', 'Fira Code', monospace);
 }
 .header-bar {
   display: flex;

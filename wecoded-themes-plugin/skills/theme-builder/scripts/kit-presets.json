@@ -64,12 +64,6 @@
       "name": "Minimal",
       "blurb": "Header hidden, thin status bar, input as a single line",
       "layout": { "chrome-style": "default", "input-style": "minimal", "header-style": "minimal", "statusbar-style": "minimal" }
-    },
-    {
-      "id": "terminal",
-      "name": "Terminal",
-      "blurb": "Monospace-forward, input styled as a shell prompt",
-      "layout": { "chrome-style": "default", "input-style": "terminal", "header-style": "default", "statusbar-style": "default" }
     }
   ],
 

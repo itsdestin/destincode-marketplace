@@ -144,7 +144,13 @@ body > #theme-bg { display: none; }
   align-items: center;
 }
 .k-stage-wrap { width: 100%; display: flex; justify-content: center; }
+/* Override theme-preview.css's 560px cap, which is sized for a 3-across grid of
+   concept cards. Here the mockup is the point of the page, and a bigger stage is
+   also MORE faithful: the frame vars are absolute px, so at ~900px the
+   --frame-edge:6px ratio (0.0067) nearly matches a real ~1400px window's
+   10px (0.0071), where at 560px it read noticeably thick. */
 .k-canvas .app-mockup {
+  max-width: min(100%, 900px);
   box-shadow: 0 8px 32px rgba(0, 0, 0, var(--ui-shadow-strength));
   border-radius: var(--ui-radius-lg);
 }
@@ -223,7 +229,13 @@ body > #theme-bg { display: none; }
 .k-dirty[hidden] { display: none; }
 
 .k-section-body { padding: 0 12px 14px; display: grid; gap: 12px; }
-.k-section-toggle[aria-expanded="false"] + .k-section-body { display: none; }
+/* :has() on the SECTION, not `+` on the button.
+   The button is wrapped in an <h2>, so .k-section-body is a sibling of the
+   heading, not of the button — an adjacent-sibling selector matched nothing and
+   the chevrons rotated without ever collapsing anything. */
+.k-section:has(> h2 > .k-section-toggle[aria-expanded="false"]) > .k-section-body {
+  display: none;
+}
 
 /* ── Preset cards ────────────────────────────────────────────────────────── */
 

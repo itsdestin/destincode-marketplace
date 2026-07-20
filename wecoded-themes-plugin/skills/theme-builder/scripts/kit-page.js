@@ -55,6 +55,21 @@
     void family;
   }
 
+  /**
+   * Rebuild the mockup's chrome DOM, then re-apply the theme.
+   *
+   * expandMockups() is idempotent-guarded (mockup-render.js:108) so it skips an
+   * already-expanded element; clearing the flag is what lets it run again. Only
+   * for structural variants — never call this for a styling change, which
+   * applyState handles without touching the DOM.
+   */
+  function reExpandStage() {
+    if (!stage || !window.mockupRender) return;
+    delete stage.dataset.mockupExpanded;
+    window.mockupRender.expandMockups(stage.parentElement || document);
+    applyState(); // innerHTML was replaced: re-apply wallpaper + re-measure
+  }
+
   /** The single writer. Every control mutates `state` then calls this. */
   function applyState() {
     if (!stage) return;
@@ -303,6 +318,26 @@
         ${sample}
         <span class="k-preset-blurb">${esc(p.blurb || '')}</span>
       </button>`;
+  }
+
+  /**
+   * Load every preset font up front so the sample text in each card actually
+   * renders in that font.
+   *
+   * Previously the only <link> injected was the SELECTED font's, so an unloaded
+   * family fell back to the page font and the cards all looked identical — the
+   * sample only "worked" after you picked it, which is exactly backwards for a
+   * chooser. Fonts are cached by the browser, so this is one-time.
+   */
+  function preloadPresetFonts() {
+    for (const p of (presets.font || [])) {
+      const href = p['google-font-url'];
+      if (!href || document.querySelector(`link[href="${CSS.escape(href)}"]`)) continue;
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = href;
+      document.head.appendChild(link);
+    }
   }
 
   function renderPresets() {
@@ -643,6 +678,14 @@
     if (nudge) nudge.addEventListener('click', nudgeToPass);
 
     // Mockup variants — preview-only, not theme state.
+    //
+    // These two are the ONE case that genuinely needs re-expansion. Everything
+    // else the editor changes is a CSS variable or a styling attribute, which
+    // restyles live. But data-drawer and data-platform are read by renderChrome
+    // at expansion time to decide what DOM to emit at all (whether a drawer pane
+    // exists; whether caption buttons exist and which side the toggle sits on).
+    // Setting the attribute afterwards changed nothing, so both buttons looked
+    // dead. Re-expanding is cheap and only happens on an explicit click.
     document.querySelectorAll('[data-mockup-attr]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const attr = btn.dataset.mockupAttr;
@@ -650,7 +693,7 @@
         const on = btn.getAttribute('aria-pressed') === 'true';
         if (on) stage.removeAttribute(attr); else stage.setAttribute(attr, val);
         btn.setAttribute('aria-pressed', String(!on));
-        if (window.mockupRender) window.mockupRender.measureChromeHeights(stage);
+        reExpandStage();
       });
     });
 
@@ -718,6 +761,7 @@
       document.getElementById('k-theme-name').textContent = state._kit.themeName || state.name || 'Untitled';
       document.getElementById('k-theme-slug').textContent = state._kit.finalSlug || '';
 
+      preloadPresetFonts();
       renderPresets();
       renderTokens();
       hydrateControls();

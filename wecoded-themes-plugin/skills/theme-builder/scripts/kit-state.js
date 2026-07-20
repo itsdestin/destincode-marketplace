@@ -192,19 +192,27 @@
     // Mirrors buildBackgroundStyle (theme-engine.ts:24-35). solid and gradient
     // set `background` to the raw value; image sets a cover/center image. Only
     // `image` needs the /files/ prefix — the other two carry CSS, not a path.
+    //
+    // KEY ORDER IS LOAD-BEARING. The caller applies this with Object.assign, so
+    // properties land in insertion order — and `background` is a SHORTHAND that
+    // includes background-image. Clearing it after setting the image wipes the
+    // image; clearing background-image after setting a gradient wipes the
+    // gradient (a gradient *is* a background-image). The clear must come FIRST
+    // in both branches. This silently blanked every wallpaper and gradient in
+    // the Kit until 2026-07-19; guarded by tests/kit-state-background.test.cjs.
     let background = null;
     if (bg.type === 'image' && bg.value) {
       background = {
+        background: '',          // clear any previous solid/gradient — MUST be first
         backgroundImage: `url("/files/${bg.value}")`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
-        background: '',          // clear any previous solid/gradient
         opacity: String(bg.opacity ?? 1),
       };
     } else if ((bg.type === 'solid' || bg.type === 'gradient') && bg.value) {
       background = {
+        backgroundImage: '',     // clear any previous image — MUST be first
         background: bg.value,
-        backgroundImage: '',     // clear any previous image
         opacity: String(bg.opacity ?? 1),
       };
     }

@@ -23,7 +23,7 @@ Stay out of context until needed:
 - `reference/concept-card.md` — concept card HTML structure, app-mockup data attributes, glassmorphism vars. **Read before generating Phase 1 concepts.**
 - `reference/tokens.md` — contrast rules, palette temperature, effect intensity, layout preset notes. **Read before designing a palette from scratch or writing a palette override.** Skip if applying a Kit preset unmodified.
 - `reference/mascots.md` — non-negotiable mascot rendering rules. **Read before generating any mascot SVG.**
-- `reference/phase2-finalize.md` — full Phase 2 build steps (folder promote, terminal-bg bake, manifest, custom CSS, contrast validation). **Read when processing `intent: "build"`.**
+- `reference/phase2-finalize.md` — full Phase 2 build steps (folder promote, terminal-bg bake, manifest, custom CSS, contrast validation). **Read when processing a `kit-build` event.**
 
 ---
 
@@ -121,6 +121,20 @@ Design **3 genuinely different interpretations** — not 3 tints of the same con
 **Differentiator rule:** each concept MUST differ from the others on **at least 2** of {palette family, layout preset, font character, bubble shape, primary decorative effect}. Three concepts sharing everything except palette = one concept in three tints — regenerate.
 
 For each concept, decide: palette (15 tokens, see `reference/tokens.md`), shape radius, font (Google or system — set `--font-sans` + `--font-mono`, add `<link>` in `<head>`), background (solid / gradient / image — if wallpapers downloaded, each concept uses its own), layout presets, effects, pattern overlay, icon overrides, mascot crossover plan, custom CSS effects.
+
+### Step 4b: Write the Page
+
+Fill the template and write it to **`${screen_dir}/screen.html`**:
+
+- `<!-- PAGE_TITLE -->` — e.g. `Cyberpunk — 3 Concepts`
+- `<!-- GOOGLE_FONTS -->` — one `<link>` per concept font
+- `<!-- CONCEPT_TABS -->` — one `.c-tab` per concept (name, swatches, one-line vibe)
+- `<!-- CONCEPT_CARDS -->` — one `.c-card` per concept, each holding ONLY its
+  `.c-stage` + `.app-mockup`. See `reference/concept-card.md` for both shapes.
+
+Nothing is served until this file exists — the server serves the newest `.html`
+in `screen_dir`, so a session that stages assets but never writes the page shows
+the user an empty waiting screen.
 
 ### Step 5: Tell the User + Quick-Apply
 
@@ -295,7 +309,7 @@ Default flow stays on Kit.
 
 ## Phase 2 — Finalize & Ship
 
-When Kit user clicks **Build Theme Pack** (intent `"build"`), **read `reference/phase2-finalize.md`** and follow its steps: folder promote, terminal-bg bake, manifest write, custom CSS write, contrast validate, confirm to user, delete `_preview`.
+When the Kit user clicks **Build Theme Pack** (the page sends `{"type":"kit-build","state":{…}}`), **read `reference/phase2-finalize.md`** and follow its steps: folder promote, terminal-bg bake, manifest write, custom CSS write, contrast validate, confirm to user, delete `_preview`.
 
 Most assets already exist in `_preview/assets/` from Phase 1.5 — Phase 2 is mostly `cp` operations; only regenerate what's missing.
 
@@ -359,6 +373,10 @@ After the pack is written, refinements go directly to manifest or asset files; a
 **Before finalizing theme pack (Phase 2):**
 - [ ] A `kit-build` event arrived — the user explicitly clicked Build, don't infer it
 - [ ] `reference/phase2-finalize.md` has been read
+- [ ] **`_kit` block deleted from the manifest** — it is Kit bookkeeping, not theme data
+- [ ] **`slug` changed from `"_preview"` to the final slug**, matching the folder name — mismatch makes the app silently render the built-in default
+- [ ] **Every asset path prefixed `assets/`** — kit-state stores bare basenames (`background.value`, `background.pattern`, all `mascot.*`, all `icons.*`)
+- [ ] **Wallpaper copied under the name in `background.value`**, not a hardcoded `wallpaper.<ext>` — user uploads are named `wallpaper-user-<id>.<ext>`
 - [ ] `scripts/manifest-template.jsonc` read before writing manifest.json
 - [ ] `scripts/custom-css-reference.md` read before writing custom CSS
 - [ ] Assets moved from `_preview/assets/` → `<slug>/assets/`; wallpaper also still in `screen_dir`

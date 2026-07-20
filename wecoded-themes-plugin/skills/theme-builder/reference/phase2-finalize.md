@@ -1,6 +1,32 @@
 # Phase 2 — Finalize & Ship (detail)
 
-Read this file when processing a Kit `intent: "build"` submission. Most assets already exist in `_preview/assets/` from Phase 1.5 — you're mostly moving and packaging, not regenerating.
+Read this file when processing a Kit `kit-build` event. Most assets already exist in `_preview/assets/` from Phase 1.5 — you're mostly moving and packaging, not regenerating.
+
+## Step 0: The kit-state → manifest transform (do this FIRST, in your head)
+
+`kit-build` hands you the Kit's working state. That is **not** a manifest. Three
+transforms have to happen, and each one fails silently if you skip it:
+
+| From kit-state | To manifest | If you skip it |
+|---|---|---|
+| `_kit: { … }` block | **delete it** | junk ships to the registry |
+| `slug: "_preview"` | `slug: "<final-slug>"` | **theme silently renders as the default** |
+| `background.value: "wallpaper.jpeg"` (bare basename) | `"assets/wallpaper.jpeg"` | broken wallpaper URL |
+
+The same applies to `background.pattern`, every `mascot.*`, and every `icons.*` —
+all are stored as bare basenames and all need the `assets/` prefix.
+
+> **The slug rename is the one that has burned this skill most often.** The app
+> keys hot-reload off the DIRECTORY name but resolves the theme by the manifest's
+> internal `.slug`. While previewing they must both be `_preview`; the moment you
+> promote the folder to `<slug>`, the manifest field must move with it. If they
+> disagree the app falls back to the built-in default and the user sees a theme
+> that looks like it was ignored. The final slug is in `_kit.finalSlug`.
+
+`scripts/kit-state.js` `toManifest()` does exactly this transform for the preview
+(strip `_kit`, force the slug, prefix the paths). Phase 2 is the same function
+with the *real* slug instead of `_preview` — read it if you want the reference
+implementation.
 
 ## Step 1: Create the Theme Pack Folder
 
@@ -10,12 +36,23 @@ mkdir -p ~/.claude/wecoded-themes/<slug>/assets
 
 ## Step 2: Move the Hero Wallpaper
 
+**Take the filename from the state, never from a guess.** `kit-build`'s
+`background.value` holds the exact basename — it is `wallpaper.jpeg` for art
+Claude generated, but `wallpaper-user-<id>.<ext>` when the user uploaded their
+own image from the Kit (the server names uploads itself, see `POST /wallpaper`).
+Hardcoding `wallpaper.<ext>` copies nothing in the upload case and ships a
+manifest pointing at a file that does not exist.
+
 ```bash
-cp ~/.claude/wecoded-themes/_preview/assets/wallpaper.<ext> \
-   ~/.claude/wecoded-themes/<slug>/assets/wallpaper.<ext>
+# WALL="$(basename of background.value from the kit-build state)"
+cp ~/.claude/wecoded-themes/_preview/assets/"$WALL" \
+   ~/.claude/wecoded-themes/<slug>/assets/"$WALL"
 ```
 
-Fallback if `_preview/assets/wallpaper.*` doesn't exist (user started gradient/solid, or Kit never swapped in an image):
+Keep the filename as-is rather than renaming it to `wallpaper.<ext>` — the
+manifest just needs `assets/$WALL` and a rename is one more place to disagree.
+
+Fallback if `background.value` is empty or the file is missing (user started gradient/solid, or Kit never swapped in an image):
 - **User-provided wallpaper:** copy directly to `<slug>/assets/wallpaper.<ext>`.
 - **Brand/IP Mode:** WebSearch for official/fan art → WebFetch → save.
 - **Vibe/Abstract Mode:** WebSearch stock photos (Unsplash, Pexels) → WebFetch → save. Or use CSS gradient if no wallpaper needed.
@@ -25,8 +62,8 @@ Fallback if `_preview/assets/wallpaper.*` doesn't exist (user started gradient/s
 Only for `type: "image"` themes. TerminalView renders a subtly blurred + darkened version of the wallpaper behind xterm so fine detail doesn't fight the terminal text. Default: 8px sigma blur + brightness 0.86 — a gentle soften that preserves wallpaper character, paired with xterm at 0.6 opacity on top so the wallpaper reads clearly through the terminal. Skip for gradient/solid themes.
 
 ```bash
-node scripts/prep-terminal-bg.cjs \
-  ~/.claude/wecoded-themes/<slug>/assets/wallpaper.<ext> \
+node ${SKILL}/scripts/prep-terminal-bg.cjs \
+  ~/.claude/wecoded-themes/<slug>/assets/"$WALL" \
   ~/.claude/wecoded-themes/<slug>/assets/wallpaper-terminal.webp
 ```
 
@@ -35,8 +72,8 @@ Output is ~15–30 KB. Then add to `manifest.json`:
 ```json
 "background": {
   "type": "image",
-  "value": "theme-asset://<slug>/assets/wallpaper.<ext>",
-  "terminal-value": "theme-asset://<slug>/assets/wallpaper-terminal.webp",
+  "value": "assets/<the same $WALL filename>",
+  "terminal-value": "assets/wallpaper-terminal.webp",
   ...
 }
 ```

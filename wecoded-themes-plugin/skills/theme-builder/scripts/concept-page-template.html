@@ -18,32 +18,45 @@
        chrome must stay readable against all of them. */
     .c-main { padding: 16px; max-width: 1500px; margin: 0 auto; }
 
-    .c-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
-      gap: 16px;
+    .c-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
     }
+    /* Each tab keeps its own swatches + name so you can still compare all three
+       at a glance without switching. */
+    .c-tab {
+      flex: 1 1 240px;
+      display: flex; flex-direction: column; gap: 6px;
+      padding: 10px 12px;
+      text-align: left; cursor: pointer; font: inherit;
+      background: var(--ui-panel);
+      border: 1px solid var(--ui-edge-dim);
+      border-radius: var(--ui-radius-lg);
+      transition: border-color .15s, background-color .15s;
+    }
+    .c-tab:hover { border-color: var(--ui-edge); }
+    .c-tab[aria-selected="true"] {
+      border-color: var(--ui-accent);
+      background: color-mix(in srgb, var(--ui-accent) 10%, var(--ui-panel));
+    }
+    .c-tab-head { display: flex; align-items: center; gap: 8px; }
 
-    /* Concept card — the app's .layer-surface recipe, --ui-* scoped. */
+    /* Concept panel — the app's .layer-surface recipe, --ui-* scoped. */
     .c-card {
       background: var(--ui-panel);
       border: 1px solid var(--ui-edge);
       border-radius: var(--ui-radius-xl);
       box-shadow: 0 8px 32px rgba(0, 0, 0, var(--ui-shadow-strength));
       overflow: hidden;
-      cursor: pointer;
-      transition: transform 0.2s, border-color 0.15s;
       display: flex;
       flex-direction: column;
     }
-    .c-card:hover { transform: translateY(-2px); border-color: var(--ui-accent); }
-    .c-card[aria-checked="true"] {
-      border-color: var(--ui-accent);
-      box-shadow: 0 0 0 2px var(--ui-accent), 0 8px 32px rgba(0, 0, 0, var(--ui-shadow-strength));
-    }
+    .c-card[hidden] { display: none; }
 
     .c-card-head {
-      padding: 12px 14px 10px;
+      padding: 14px 16px 10px;
       display: flex;
       align-items: flex-start;
       gap: 10px;
@@ -59,7 +72,7 @@
       font-size: var(--ui-text-3xs);
       display: inline-flex; align-items: center; justify-content: center;
     }
-    .c-card[aria-checked="true"] .c-letter { background: var(--ui-accent); color: var(--ui-on-accent); }
+    .c-tab[aria-selected="true"] .c-letter { background: var(--ui-accent); color: var(--ui-on-accent); }
 
     .c-swatches { display: flex; gap: 3px; padding: 0 14px 10px; }
     .c-swatches span {
@@ -79,8 +92,24 @@
       color: var(--ui-fg-muted);
     }
 
-    .c-stage { padding: 0 14px 14px; }
-    .c-stage .app-mockup { max-width: 100%; }
+        /* The whole point of tabs: one preview, as large as the viewport allows.
+       Frame vars scale with it — they're absolute px, so a bigger stage with an
+       unchanged edge reads progressively thinner than the real window. */
+    .c-stage { padding: 0 16px 16px; }
+    .c-stage .app-mockup {
+      /* Drive from HEIGHT, not width. .app-mockup is aspect-ratio 16/10, so a
+         1280px width implies 800px tall and the preview runs off the bottom of
+         the screen — you'd scroll to see the input bar, which defeats the point
+         of a big preview. Setting height and letting width derive keeps the
+         whole window visible at once. */
+      width: auto;
+      height: min(calc(100vh - 300px), 700px);
+      max-width: 100%;
+      margin: 0 auto;
+      --frame-edge: 9px;
+      --frame-corner: 11px;
+      --right-pane-width: 340px;
+    }
 
     .c-foot {
       position: fixed; inset: auto 0 0 0;
@@ -93,8 +122,7 @@
     .c-foot b { color: var(--ui-fg); font-weight: 600; }
 
     @media (prefers-reduced-motion: reduce) {
-      .c-card { transition: border-color 0.15s; }
-      .c-card:hover { transform: none; }
+      .c-tab { transition: none; }
     }
   </style>
 </head>
@@ -112,7 +140,10 @@
 </div>
 
 <div class="c-main">
-  <div class="c-grid">
+  <div class="c-tabs" role="tablist" aria-label="Concepts">
+    <!-- CONCEPT_TABS — Claude inserts one .c-tab per concept here. -->
+  </div>
+  <div class="c-panels">
     <!-- CONCEPT_CARDS — Claude inserts .c-card divs here.
 
          Each card carries its OWN theme tokens as inline style, which the
@@ -120,7 +151,7 @@
          — three themes share this page and page chrome must stay readable
          against all of them.
 
-         See reference/concept-card.md for the card + data-attr contract. -->
+         See reference/concept-card.md for the tab + panel contract. -->
   </div>
 </div>
 
@@ -151,23 +182,46 @@
     });
   })();
 
-  document.querySelectorAll('.c-card').forEach((card) => {
-    card.setAttribute('role', 'radio');
-    card.setAttribute('aria-checked', 'false');
-    card.tabIndex = 0;
-    const choose = () => {
-      document.querySelectorAll('.c-card').forEach((c) => c.setAttribute('aria-checked', String(c === card)));
-      if (window.brainstorm) {
-        window.brainstorm.choice(card.dataset.choice, {
-          name: card.querySelector('.c-card-title')?.textContent?.trim() || '',
+  // Tabs swap which concept is on the big stage AND record the pick. Showing
+  // one at a time is what buys the large preview, and flipping between tabs in
+  // the same screen position is a better A/B than scanning three small cards.
+  (function () {
+    const tabs = [...document.querySelectorAll('.c-tab')];
+    const panels = [...document.querySelectorAll('.c-card')];
+    const byChoice = (v) => panels.find((p) => p.dataset.choice === v);
+
+    function select(tab, notify) {
+      tabs.forEach((t) => {
+        const on = t === tab;
+        t.setAttribute('aria-selected', String(on));
+        t.tabIndex = on ? 0 : -1;
+      });
+      panels.forEach((p) => { p.hidden = p.dataset.choice !== tab.dataset.choice; });
+      // Particles are per-panel canvases; a hidden canvas has zero size, so
+      // restart the newly visible one now that it can measure itself.
+      const panel = byChoice(tab.dataset.choice);
+      const mockup = panel && panel.querySelector('.app-mockup');
+      if (mockup && window.mockupRender && window.mockupRender.startParticles) {
+        window.mockupRender.startParticles(mockup, window.__conceptFx?.[tab.dataset.choice] || { preset: 'none' });
+      }
+      if (notify && window.brainstorm) {
+        window.brainstorm.choice(tab.dataset.choice, {
+          name: tab.querySelector('.c-tab-title')?.textContent?.trim() || '',
         });
       }
-    };
-    card.addEventListener('click', choose);
-    card.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); choose(); }
+    }
+
+    tabs.forEach((tab) => {
+      tab.addEventListener('click', () => select(tab, true));
+      tab.addEventListener('keydown', (e) => {
+        const i = tabs.indexOf(tab);
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); tabs[(i + 1) % tabs.length].focus(); tabs[(i + 1) % tabs.length].click(); }
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); tabs[(i - 1 + tabs.length) % tabs.length].focus(); tabs[(i - 1 + tabs.length) % tabs.length].click(); }
+      });
     });
-  });
+
+    if (tabs[0]) select(tabs[0], false);  // show the first, don't record a pick
+  })();
 </script>
 </body>
 </html>

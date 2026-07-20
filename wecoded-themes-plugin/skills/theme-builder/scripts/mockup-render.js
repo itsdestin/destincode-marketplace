@@ -131,6 +131,8 @@
 
     return `
       <div id="theme-bg" style="background-image: url('${esc(d.wallpaper || BLANK_PX)}');"></div>
+      <div id="theme-pattern"></div>
+      <canvas class="theme-particles" aria-hidden="true"></canvas>
       <div class="chrome-glass${drawer ? ' chrome-glass--drawer-open' : ''}"></div>
       <div class="header-bar">
         <button class="header-btn" aria-label="Settings">${SVG.gear}</button>
@@ -237,6 +239,91 @@
     if (bottom) el.style.setProperty('--bottom-chrome-height', bottom.offsetHeight + 'px');
   }
 
+  /**
+   * Particle layer — a scoped port of the app's ThemeEffects.tsx canvas.
+   *
+   * The app animates particles on a full-window canvas with requestAnimationFrame;
+   * this runs the same four presets inside the bounded mockup box. Previously the
+   * preview rendered nothing and the Kit had to apologise for it in a caption,
+   * which meant "ember" and "none" looked identical while authoring.
+   *
+   * Honours prefers-reduced-motion by drawing one static frame — the particles
+   * are still visible, they just don't move.
+   */
+  const particleRuns = new WeakMap();
+
+  function startParticles(el, cfg) {
+    const prev = particleRuns.get(el);
+    if (prev) { cancelAnimationFrame(prev); particleRuns.delete(el); }
+
+    const canvas = el.querySelector('.theme-particles');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const preset = cfg && cfg.preset;
+    const w = canvas.width = el.clientWidth;
+    const h = canvas.height = el.clientHeight;
+    ctx.clearRect(0, 0, w, h);
+    if (!preset || preset === 'none' || !w || !h) return;
+
+    // The mockup is a fraction of a real window, so a real count would read as
+    // static. Scale to area, floored so low counts stay visible.
+    const scale = Math.max(0.25, (w * h) / (1600 * 900));
+    const count = Math.max(6, Math.round((cfg.count || 30) * scale));
+    const speed = cfg.speed || 0.4;
+    const drift = cfg.drift || 0.3;
+    const [minS, maxS] = cfg.sizeRange || [4, 12];
+
+    const P = [];
+    for (let i = 0; i < count; i++) {
+      P.push({
+        x: Math.random() * w,
+        y: Math.random() * h,
+        speed: speed * (0.5 + Math.random()),
+        opacity: 0.25 + Math.random() * 0.5,
+        length: 4 + Math.random() * 8,
+        size: (minS + Math.random() * (maxS - minS)) * 0.4,
+      });
+    }
+
+    const still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    const draw = () => {
+      ctx.clearRect(0, 0, w, h);
+      for (const p of P) {
+        ctx.globalAlpha = p.opacity;
+        if (preset === 'rain') {
+          ctx.strokeStyle = cfg.fg;
+          ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - 1, p.y + p.length); ctx.stroke();
+          if (!still) { p.y += p.speed * 3; if (p.y > h) { p.y = -p.length; p.x = Math.random() * w; } }
+        } else if (preset === 'dust') {
+          ctx.fillStyle = cfg.accent;
+          ctx.beginPath(); ctx.arc(p.x, p.y, 1, 0, Math.PI * 2); ctx.fill();
+          if (!still) { p.y -= p.speed * 0.3; p.x += Math.sin(p.y * 0.02) * 0.5; if (p.y < 0) { p.y = h; p.x = Math.random() * w; } }
+        } else if (preset === 'ember') {
+          ctx.fillStyle = cfg.accent;
+          ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(0.8, p.size * 0.25), 0, Math.PI * 2); ctx.fill();
+          if (!still) { p.y -= p.speed; p.x += Math.sin(p.y * 0.03) * drift; if (p.y < -2) { p.y = h + 2; p.x = Math.random() * w; } }
+        } else if (preset === 'snow') {
+          ctx.fillStyle = '#FFFFFF';
+          ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(0.8, p.size * 0.2), 0, Math.PI * 2); ctx.fill();
+          if (!still) { p.y += p.speed * 0.6; p.x += Math.sin(p.y * 0.02) * drift; if (p.y > h) { p.y = -2; p.x = Math.random() * w; } }
+        } else {
+          // 'custom' (and anything unrecognised) — the shape SVG isn't staged
+          // for the preview, so fall back to accent dots rather than nothing.
+          ctx.fillStyle = cfg.accent;
+          ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(0.8, p.size * 0.22), 0, Math.PI * 2); ctx.fill();
+          if (!still) { p.y -= p.speed * 0.5; if (p.y < -2) { p.y = h + 2; p.x = Math.random() * w; } }
+        }
+      }
+      ctx.globalAlpha = 1;
+      if (!still) particleRuns.set(el, requestAnimationFrame(draw));
+    };
+    draw();
+  }
+
   function expandMockups(root) {
     const scope = root || document;
     const targets = scope.querySelectorAll('.app-mockup[data-mockup]');
@@ -265,7 +352,7 @@
   }
 
   // Expose + auto-run on DOMContentLoaded.
-  window.mockupRender = { expandMockups, measureChromeHeights, applyFxDefaults, SVG };
+  window.mockupRender = { expandMockups, measureChromeHeights, applyFxDefaults, startParticles, SVG };
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => expandMockups());
   } else {

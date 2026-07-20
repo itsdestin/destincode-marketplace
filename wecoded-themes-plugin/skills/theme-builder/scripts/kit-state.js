@@ -179,15 +179,59 @@
     attrs['data-header-style'] = layout['header-style'] || 'default';
     attrs['data-statusbar-style'] = layout['statusbar-style'] || 'default';
 
-    // [data-wallpaper] gates the glass tone rules, mirroring the app where the
-    // attribute lives on <html>.
-    const isImage = bg.type === 'image' && bg.value;
-    attrs['data-wallpaper'] = isImage ? '' : null;
+    // [data-wallpaper] gates app-shell transparency AND the glass treatment.
+    // It must cover GRADIENTS too, not just images — theme-engine.ts:344 uses
+    // `(type === 'image' || type === 'gradient') && !!value`, with an explicit
+    // note that omitting gradients lets the canvas-coloured shell paint over the
+    // #theme-bg layer so the gradient renders as a flat slab. This preview had
+    // exactly that bug: it gated on images only, reproducing a defect the app
+    // had already fixed.
+    const hasBackgroundLayer = (bg.type === 'image' || bg.type === 'gradient') && !!bg.value;
+    attrs['data-wallpaper'] = hasBackgroundLayer ? '' : null;
+
+    // Mirrors buildBackgroundStyle (theme-engine.ts:24-35). solid and gradient
+    // set `background` to the raw value; image sets a cover/center image. Only
+    // `image` needs the /files/ prefix — the other two carry CSS, not a path.
+    let background = null;
+    if (bg.type === 'image' && bg.value) {
+      background = {
+        backgroundImage: `url("/files/${bg.value}")`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        background: '',          // clear any previous solid/gradient
+        opacity: String(bg.opacity ?? 1),
+      };
+    } else if ((bg.type === 'solid' || bg.type === 'gradient') && bg.value) {
+      background = {
+        background: bg.value,
+        backgroundImage: '',     // clear any previous image
+        opacity: String(bg.opacity ?? 1),
+      };
+    }
+
+    // Pattern overlay (#theme-pattern), mirroring buildPatternStyle.
+    const pattern = bg.pattern
+      ? {
+        backgroundImage: `url("/files/${bg.pattern}")`,
+        backgroundRepeat: 'repeat',
+        opacity: String(bg['pattern-opacity'] ?? 0.06),
+      }
+      : { backgroundImage: '', opacity: '0' };
 
     return {
       vars,
       attrs,
-      wallpaperUrl: isImage ? '/files/' + bg.value : null,
+      background,
+      pattern,
+      particles: {
+        preset: (state.effects && state.effects.particles) || 'none',
+        count: (state.effects && state.effects['particle-count']) || 30,
+        speed: (state.effects && state.effects['particle-speed']) || 0.4,
+        drift: (state.effects && state.effects['particle-drift']) || 0.3,
+        sizeRange: (state.effects && state.effects['particle-size-range']) || [4, 12],
+        accent: (state.tokens && state.tokens.accent) || '#888888',
+        fg: (state.tokens && state.tokens.fg) || '#888888',
+      },
       fontHref: (state.font && state.font['google-font-url']) || null,
     };
   }

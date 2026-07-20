@@ -900,6 +900,29 @@ body {
   opacity: 0;
 }
 
+/* Mockup-scoped: same treatment as #theme-bg — absolute inside the bounded box,
+   sitting just above the wallpaper and below chat content. The div was styled
+   here but never actually emitted, so pattern overlays were invisible in every
+   preview; mockup-render now renders it. */
+.app-mockup #theme-pattern {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-repeat: repeat;
+}
+
+/* Particle canvas. The app animates particles on a full-window <canvas>
+   (ThemeEffects.tsx); this is the same idea scoped to the mockup box, so a
+   theme's particles are actually previewable instead of being described in a
+   caption. Above the wallpaper/pattern, below the chrome and chat. */
+.app-mockup .theme-particles {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    Visual effects — vignette, noise, scan-lines
    Applied via overlay divs in the mockup. Theme manifest fields:

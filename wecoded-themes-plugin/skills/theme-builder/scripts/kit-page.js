@@ -73,23 +73,33 @@
   /** The single writer. Every control mutates `state` then calls this. */
   function applyState() {
     if (!stage) return;
-    const { vars, attrs, wallpaperUrl, fontHref } = KS.toMockup(state);
+    const { vars, attrs, background, pattern, particles, fontHref } = KS.toMockup(state);
 
     for (const [k, v] of Object.entries(vars)) stage.style.setProperty(k, v);
     setAttrs(stage, attrs);
 
-    const bg = stage.querySelector('#theme-bg');
-    if (bg) {
-      // #theme-bg always exists (mockup-render seeds it with a transparent GIF),
-      // so a wallpaper swap is an assignment, never DOM surgery.
-      bg.style.backgroundImage = wallpaperUrl ? `url('${wallpaperUrl}')` : 'none';
+    // #theme-bg and #theme-pattern always exist (mockup-render emits both), so
+    // background changes are assignments, never DOM surgery. Solid/gradient set
+    // `background`; image sets a cover/center backgroundImage — mirroring the
+    // app's buildBackgroundStyle rather than assuming every theme is an image.
+    const bgEl = stage.querySelector('#theme-bg');
+    if (bgEl) {
+      bgEl.style.background = '';
+      bgEl.style.backgroundImage = '';
+      if (background) Object.assign(bgEl.style, background);
     }
+    const patEl = stage.querySelector('#theme-pattern');
+    if (patEl && pattern) Object.assign(patEl.style, pattern);
+
     setFont(fontHref, state.font && state.font.family);
 
     // Chrome bar heights feed the clip-path cutout; a layout preset can change
     // them, so re-measure or the frame drifts out of alignment.
     if (window.mockupRender && window.mockupRender.measureChromeHeights) {
       window.mockupRender.measureChromeHeights(stage);
+    }
+    if (window.mockupRender && window.mockupRender.startParticles) {
+      window.mockupRender.startParticles(stage, particles);
     }
     renderContrast();
     persist();

@@ -641,6 +641,16 @@ body {
 }
 .app-mockup .header-pill-btn:hover { color: var(--fg-2); }
 .app-mockup .header-pill-btn svg { width: 13px; height: 13px; }
+/* Open state — the app fills the button with accent while its pane is showing
+   (HeaderBar.tsx:267, 652). The count badge inverts so it stays legible. */
+.app-mockup .header-pill-btn.is-active {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.app-mockup .header-pill-btn.is-active .header-badge {
+  background: var(--on-accent);
+  color: var(--accent);
+}
 
 /* Badge and dot are INLINE siblings of the icon (gap-1), not absolutely
    positioned — the app lays them out in flow inside the button. */

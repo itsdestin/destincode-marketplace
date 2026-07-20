@@ -147,12 +147,14 @@
         </div>
         <div class="header-right">
           <div class="header-pill">
-            <button class="header-pill-btn" aria-label="Files in this chat">
+            <button class="header-pill-btn${drawer === 'artifact' ? ' is-active' : ''}"
+                    data-mockup-toggle="artifact" aria-label="Files in this chat">
               ${SVG.document}<span class="header-badge">3</span>
             </button>
           </div>
           <div class="header-pill">
-            <button class="header-pill-btn" aria-label="Connect 4">
+            <button class="header-pill-btn${isGame ? ' is-active' : ''}"
+                    data-mockup-toggle="game" aria-label="Connect 4">
               ${SVG.gamepad}<span class="header-dot"></span>
             </button>
           </div>

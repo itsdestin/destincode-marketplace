@@ -145,12 +145,16 @@ body > #theme-bg { display: none; }
 }
 .k-stage-wrap { width: 100%; display: flex; justify-content: center; }
 /* Override theme-preview.css's 560px cap, which is sized for a 3-across grid of
-   concept cards. Here the mockup is the point of the page, and a bigger stage is
-   also MORE faithful: the frame vars are absolute px, so at ~900px the
-   --frame-edge:6px ratio (0.0067) nearly matches a real ~1400px window's
-   10px (0.0071), where at 560px it read noticeably thick. */
+   concept cards. Here the mockup IS the page, so it gets the room.
+   The frame vars scale with it: they're absolute px, so a bigger stage with an
+   unchanged 6px edge would read progressively thinner than the real thing. At
+   1100px, 8px gives a 0.0073 ratio — near-identical to a real ~1400px window's
+   10px (0.0071). Keep these two in step if the width changes again. */
 .k-canvas .app-mockup {
-  max-width: min(100%, 900px);
+  max-width: min(100%, 1100px);
+  --frame-edge: 8px;
+  --frame-corner: 10px;
+  --right-pane-width: 300px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, var(--ui-shadow-strength));
   border-radius: var(--ui-radius-lg);
 }

@@ -677,24 +677,24 @@
     const nudge = document.getElementById('k-nudge');
     if (nudge) nudge.addEventListener('click', nudgeToPass);
 
-    // Mockup variants — preview-only, not theme state.
+    // The mockup's OWN artifact and games buttons drive the right pane, rather
+    // than duplicate controls sitting outside the preview. Delegated because
+    // re-expansion replaces these nodes.
     //
-    // These two are the ONE case that genuinely needs re-expansion. Everything
-    // else the editor changes is a CSS variable or a styling attribute, which
-    // restyles live. But data-drawer and data-platform are read by renderChrome
-    // at expansion time to decide what DOM to emit at all (whether a drawer pane
-    // exists; whether caption buttons exist and which side the toggle sits on).
-    // Setting the attribute afterwards changed nothing, so both buttons looked
-    // dead. Re-expanding is cheap and only happens on an explicit click.
-    document.querySelectorAll('[data-mockup-attr]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const attr = btn.dataset.mockupAttr;
-        const val = btn.dataset.mockupValue;
-        const on = btn.getAttribute('aria-pressed') === 'true';
-        if (on) stage.removeAttribute(attr); else stage.setAttribute(attr, val);
-        btn.setAttribute('aria-pressed', String(!on));
-        reExpandStage();
-      });
+    // This is the one case that genuinely needs re-expansion: data-drawer is
+    // read by renderChrome at expansion time to decide whether a drawer pane
+    // exists at all, so it changes STRUCTURE, not style. Everything else the
+    // editor touches is a variable or a styling attribute.
+    //
+    // The two panes are mutually exclusive, matching the app (App.tsx:597-609
+    // closes each when the other opens) — they share one right slot.
+    stage.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-mockup-toggle]');
+      if (!btn) return;
+      const want = btn.dataset.mockupToggle;
+      if (stage.dataset.drawer === want) delete stage.dataset.drawer; // toggle off
+      else stage.dataset.drawer = want;                               // or swap panes
+      reExpandStage();
     });
 
     document.querySelectorAll('[data-request]').forEach((btn) => {

@@ -1,10 +1,10 @@
 import { Hono } from "hono";
 import type { HonoEnv } from "../types";
 import { requireAuth } from "../auth/middleware";
-import { badRequest, forbidden, notFound, tooMany } from "../lib/errors";
+import { badRequest, notFound, tooMany } from "../lib/errors";
 import { randomToken } from "../lib/crypto";
 import { checkRateLimit } from "../lib/rate-limit";
-import { isAdminAccount } from "../auth/admin";
+import { requireAdminAccount } from "../auth/admin";
 
 export const reportRoutes = new Hono<HonoEnv>();
 
@@ -36,7 +36,7 @@ reportRoutes.post("/reports", requireAuth, async (c) => {
 // DELETE /admin/ratings/:user_id/:plugin_id — admin hides a rating and resolves
 // any open reports against it in a single step
 reportRoutes.delete("/admin/ratings/:user_id/:plugin_id", requireAuth, async (c) => {
-  if (!(await isAdminAccount(c.env.DB, c.env, c.get("userId")))) throw forbidden("admin only");
+  await requireAdminAccount(c);
   // Account ids are opaque acct_<hex> (no special chars), but older admin
   // tooling URL-encoded this segment — keep decoding; it's a no-op for acct_ ids.
   const userId = decodeURIComponent(c.req.param("user_id"));
@@ -58,7 +58,7 @@ reportRoutes.delete("/admin/ratings/:user_id/:plugin_id", requireAuth, async (c)
 
 // GET /admin/reports — admin queue of unresolved reports with rating context
 reportRoutes.get("/admin/reports", requireAuth, async (c) => {
-  if (!(await isAdminAccount(c.env.DB, c.env, c.get("userId")))) throw forbidden("admin only");
+  await requireAdminAccount(c);
   const { results } = await c.env.DB
     .prepare(
       `SELECT r.*, rt.stars, rt.review_text

@@ -47,12 +47,14 @@
 /* creme — default */
 :root,
 :root[data-chrome-scheme="light"] {
-  --ui-canvas: #F0E6D6;
+  /* Tracks creme in globals.css: raised from #F0E6D6 so panel/canvas clears
+     the 1.07 separation floor (was 1.051). on-accent tracks canvas. */
+  --ui-canvas: #F6EEE1;
   --ui-panel: #EBE1D1;
   --ui-inset: #DDD1BE;
   --ui-well: #F5ECDE;
   --ui-accent: #3D3229;
-  --ui-on-accent: #F0E6D6;
+  --ui-on-accent: #F6EEE1;
   --ui-fg: #2C2418;
   --ui-fg-2: #5C4F3E;
   --ui-fg-dim: #7A6E5D;

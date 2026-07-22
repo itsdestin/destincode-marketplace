@@ -62,10 +62,13 @@ over the background before measuring; a hex without the suffix measures as fully
 opaque and reports numbers that don't match what renders.
 
 **Light themes are harder than dark ones.** `panel` vs `canvas` only needs
-1.07:1, but landing near that on a light theme makes the frame nearly invisible —
-Crème (`canvas #F0E6D6` / `panel #EBE1D1`) is deliberately near the floor, so the
-picture-frame chrome reads as texture rather than structure. That's a design
-choice, not a target to copy blindly.
+1.07:1, but landing near that on a light theme makes the frame nearly invisible.
+Crème used to sit *below* it (`canvas #F0E6D6` / `panel #EBE1D1` = 1.051) and the
+chrome genuinely did not separate from the content; it was raised to
+`canvas #F6EEE1` (1.132) on 2026-07-22. Note which token moved: Crème's ramp is
+tightly packed and `panel` is pinned between `canvas` above and `inset`/`edge`
+below, so *darkening panel* clears this pair but breaks `inset vs panel` and
+`edge on panel`. On a packed light ramp, lighten the canvas.
 
 **Near-black accents break brightness-based hover.** Crème's accent is `#3D3229`;
 `filter: brightness()` on it is invisible. Hover states fade the background

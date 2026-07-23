@@ -26,6 +26,10 @@ export interface Env {
   // Set via `wrangler secret put KNOWN_DEV_DEVICES` (Task 15) — absent until then.
   // adminFilterClause() uses these to exclude dev traffic from analytics queries.
   KNOWN_DEV_DEVICES?: string;
+  // Presence ghost-socket staleness threshold in ms. Set ONLY in [env.test.vars]
+  // so eviction is reachable in a test run; production omits it and uses the
+  // generous in-code rollout default (presence-room.ts STALE_DEFAULT_MS).
+  PRESENCE_STALE_MS?: string;
 }
 
 // NOTE: full-row interfaces (UserRow/IdentityRow/SessionRow/RatingRow) used to

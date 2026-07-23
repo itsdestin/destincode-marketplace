@@ -74,6 +74,9 @@ CF_ANALYTICS_TOKEN = "test-token"
 # need to flow into c.env must come from [env.test.vars].
 CUTOVER_TIMESTAMP = "2026-05-15T00:00:00Z"
 KNOWN_DEV_DEVICES = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+# Presence staleness threshold override so eviction is reachable inside a test
+# run — production uses the generous in-code default (see presence-room.ts).
+PRESENCE_STALE_MS = "800"
 
 # Production runtime config: GH_CLIENT_ID, GH_CLIENT_SECRET, and ADMIN_USER_IDS
 # are injected as secrets by CI (see .github/workflows/worker-deploy.yml).

@@ -28,39 +28,11 @@ export interface Env {
   KNOWN_DEV_DEVICES?: string;
 }
 
-export interface UserRow {
-  id: string;               // opaque 'acct_<hex>' (legacy rows migrated) — never parse
-  display_name: string;
-  avatar_url: string | null;
-  handle: string | null;
-  status: string;           // 'active' | 'suspended' (tier-C stub)
-  created_at: number;
-  deleted_at: number | null;
-}
-
-export interface IdentityRow {
-  provider: string;         // 'github' (later 'google')
-  provider_user_id: string;
-  user_id: string;
-  provider_login: string | null;
-  linked_at: number;
-}
-
-export interface SessionRow {
-  token_hash: string;
-  user_id: string;
-  created_at: number;
-  last_used_at: number;
-}
-
-export interface RatingRow {
-  user_id: string;
-  plugin_id: string;
-  stars: number;
-  review_text: string | null;
-  created_at: number;
-  updated_at: number;
-  hidden: number;
-}
+// NOTE: full-row interfaces (UserRow/IdentityRow/SessionRow/RatingRow) used to
+// live here and were removed 2026-07-22 as dead code. Every query in this worker
+// declares its own inline shape for just the columns it SELECTs (e.g.
+// `.first<{ user_id: string; last_used_at: number }>()` in auth/sessions.ts),
+// so the whole-row types were never referenced. Keep that convention — an
+// inline shape can't drift out of sync with the columns its query asks for.
 
 export type HonoEnv = { Bindings: Env; Variables: { userId: string } };

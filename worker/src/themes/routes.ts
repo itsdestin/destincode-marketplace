@@ -1,13 +1,12 @@
 import { Hono } from "hono";
 import type { HonoEnv } from "../types";
 import { requireAuth } from "../auth/middleware";
-import { badRequest } from "../lib/errors";
+import { validateId } from "../lib/validate";
 
 export const themeRoutes = new Hono<HonoEnv>();
 
 themeRoutes.post("/themes/:id/like", requireAuth, async (c) => {
-  const themeId = c.req.param("id");
-  if (!themeId || themeId.length > 128) throw badRequest("invalid theme id");
+  const themeId = validateId(c.req.param("id"), "theme id");
   const userId = c.get("userId");
   const existing = await c.env.DB
     .prepare("SELECT 1 AS one FROM theme_likes WHERE user_id = ? AND theme_id = ?")

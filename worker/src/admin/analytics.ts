@@ -12,10 +12,9 @@
 import { Hono } from "hono";
 import type { HonoEnv } from "../types";
 import { requireAdminAuth } from "../auth/admin-middleware";
-import { forbidden } from "../lib/errors";
 import { runAnalyticsQuery } from "../lib/analytics-query";
 import { adminFilterClause, cutoverClause } from "../lib/admin-filter";
-import { isAdminAccount } from "../auth/admin";
+import { requireAdminAccount } from "../auth/admin";
 
 function clampDays(raw: string | undefined, fallback: number): number {
   const n = Number(raw ?? fallback);
@@ -31,7 +30,7 @@ export const adminAnalyticsRoutes = new Hono<HonoEnv>();
 
 // GET /admin/analytics/dau?days=30 — devices active per day for the last N days.
 adminAnalyticsRoutes.get("/admin/analytics/dau", requireAdminAuth, async (c) => {
-  if (!(await isAdminAccount(c.env.DB, c.env, c.get("userId")))) throw forbidden("admin only");
+  await requireAdminAccount(c);
   const days = clampDays(c.req.query("days"), 30);
   const cutover = cutoverClause(c.env);
   const filter = adminFilterClause(c.env, includeAdmins(c.req.query("include_admins")));
@@ -47,7 +46,7 @@ adminAnalyticsRoutes.get("/admin/analytics/dau", requireAdminAuth, async (c) => 
 
 // GET /admin/analytics/mau — rolling 30-day distinct devices.
 adminAnalyticsRoutes.get("/admin/analytics/mau", requireAdminAuth, async (c) => {
-  if (!(await isAdminAccount(c.env.DB, c.env, c.get("userId")))) throw forbidden("admin only");
+  await requireAdminAccount(c);
   const cutover = cutoverClause(c.env);
   const filter = adminFilterClause(c.env, includeAdmins(c.req.query("include_admins")));
   const rows = await runAnalyticsQuery<{ devices: number }>(
@@ -65,7 +64,7 @@ adminAnalyticsRoutes.get("/admin/analytics/mau", requireAdminAuth, async (c) => 
 // the subquery 422s, fall back to the two-query JS path documented in the
 // plan: fetch (blob2, MIN(timestamp)) rows, group by day in JS.
 adminAnalyticsRoutes.get("/admin/analytics/installs", requireAdminAuth, async (c) => {
-  if (!(await isAdminAccount(c.env.DB, c.env, c.get("userId")))) throw forbidden("admin only");
+  await requireAdminAccount(c);
   const days = clampDays(c.req.query("days"), 90);
   const cutover = cutoverClause(c.env);
   const filter = adminFilterClause(c.env, includeAdmins(c.req.query("include_admins")));
@@ -86,7 +85,7 @@ adminAnalyticsRoutes.get("/admin/analytics/installs", requireAdminAuth, async (c
 
 // GET /admin/analytics/versions — rolling 24h devices by version.
 adminAnalyticsRoutes.get("/admin/analytics/versions", requireAdminAuth, async (c) => {
-  if (!(await isAdminAccount(c.env.DB, c.env, c.get("userId")))) throw forbidden("admin only");
+  await requireAdminAccount(c);
   const cutover = cutoverClause(c.env);
   const filter = adminFilterClause(c.env, includeAdmins(c.req.query("include_admins")));
   const rows = await runAnalyticsQuery<{ version: string; devices: number }>(
@@ -101,7 +100,7 @@ adminAnalyticsRoutes.get("/admin/analytics/versions", requireAdminAuth, async (c
 
 // GET /admin/analytics/platforms — rolling 30-day split.
 adminAnalyticsRoutes.get("/admin/analytics/platforms", requireAdminAuth, async (c) => {
-  if (!(await isAdminAccount(c.env.DB, c.env, c.get("userId")))) throw forbidden("admin only");
+  await requireAdminAccount(c);
   const cutover = cutoverClause(c.env);
   const filter = adminFilterClause(c.env, includeAdmins(c.req.query("include_admins")));
   const rows = await runAnalyticsQuery<{ platform: string; devices: number }>(
@@ -116,7 +115,7 @@ adminAnalyticsRoutes.get("/admin/analytics/platforms", requireAdminAuth, async (
 
 // GET /admin/analytics/countries — rolling 30-day top 20.
 adminAnalyticsRoutes.get("/admin/analytics/countries", requireAdminAuth, async (c) => {
-  if (!(await isAdminAccount(c.env.DB, c.env, c.get("userId")))) throw forbidden("admin only");
+  await requireAdminAccount(c);
   const cutover = cutoverClause(c.env);
   const filter = adminFilterClause(c.env, includeAdmins(c.req.query("include_admins")));
   const rows = await runAnalyticsQuery<{ country: string; devices: number }>(
@@ -131,7 +130,7 @@ adminAnalyticsRoutes.get("/admin/analytics/countries", requireAdminAuth, async (
 
 // GET /admin/analytics/regions — rolling 30-day top 20 ISO 3166-2 regions. NEW.
 adminAnalyticsRoutes.get("/admin/analytics/regions", requireAdminAuth, async (c) => {
-  if (!(await isAdminAccount(c.env.DB, c.env, c.get("userId")))) throw forbidden("admin only");
+  await requireAdminAccount(c);
   const cutover = cutoverClause(c.env);
   const filter = adminFilterClause(c.env, includeAdmins(c.req.query("include_admins")));
   const rows = await runAnalyticsQuery<{ region: string; devices: number }>(

@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import type { HonoEnv } from "../types";
 import { requireAuth } from "../auth/middleware";
-import { badRequest, tooMany } from "../lib/errors";
+import { tooMany } from "../lib/errors";
+import { validateId } from "../lib/validate";
 import { checkRateLimit } from "../lib/rate-limit";
 
 export const installRoutes = new Hono<HonoEnv>();
@@ -17,8 +18,7 @@ installRoutes.post("/installs", requireAuth, async (c) => {
     throw tooMany("too many installs per hour");
   }
   const body = await c.req.json<{ plugin_id?: string }>();
-  const pluginId = body.plugin_id?.trim();
-  if (!pluginId || pluginId.length > 128) throw badRequest("invalid plugin_id");
+  const pluginId = validateId(body.plugin_id);
   const now = Math.floor(Date.now() / 1000);
   await c.env.DB
     .prepare(

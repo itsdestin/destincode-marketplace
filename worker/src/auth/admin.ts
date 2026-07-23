@@ -2,6 +2,9 @@
 // — NOT on account ids, so it survives id-format changes (spec §1).
 // ADMIN_USER_IDS: comma-separated GitHub numeric ids.
 import type { D1Database } from "@cloudflare/workers-types";
+import type { Context } from "hono";
+import type { HonoEnv } from "../types";
+import { forbidden } from "../lib/errors";
 
 export async function isAdminAccount(
   db: D1Database,
@@ -20,4 +23,14 @@ export async function isAdminAccount(
     .bind(userId)
     .first<{ provider_user_id: string }>();
   return !!row && admins.includes(row.provider_user_id);
+}
+
+// Inline admin gate for a route whose auth middleware (requireAdminAuth) has
+// already set `userId`. Throws 403 — authenticated-but-not-admin — which stays
+// distinct from the 401 that requireAdminAuth throws for missing/invalid
+// credentials. Deliberately a per-route call rather than folded into the
+// middleware so that 401/403 split is preserved (see admin-middleware.ts); this
+// only DRYs the identical isAdminAccount check that 9 routes copy-pasted.
+export async function requireAdminAccount(c: Context<HonoEnv>): Promise<void> {
+  if (!(await isAdminAccount(c.env.DB, c.env, c.get("userId")))) throw forbidden("admin only");
 }

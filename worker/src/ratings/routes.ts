@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { HonoEnv } from "../types";
 import { requireAuth } from "../auth/middleware";
 import { badRequest, forbidden, tooMany } from "../lib/errors";
+import { validateId } from "../lib/validate";
 import { hasInstall } from "../db";
 import { classifyReview, validateReviewText } from "./moderation";
 import { checkRateLimit } from "../lib/rate-limit";
@@ -30,8 +31,7 @@ ratingRoutes.post("/ratings", requireAuth, async (c) => {
     throw tooMany("too many ratings per hour");
   }
   const body = await c.req.json<{ plugin_id?: string; stars?: number; review_text?: string | null }>();
-  const pluginId = body.plugin_id?.trim();
-  if (!pluginId || pluginId.length > 128) throw badRequest("invalid plugin_id");
+  const pluginId = validateId(body.plugin_id);
   const stars = body.stars;
   if (typeof stars !== "number" || !Number.isInteger(stars) || stars < 1 || stars > 5) {
     throw badRequest("stars must be an integer 1-5");
@@ -75,8 +75,7 @@ ratingRoutes.post("/ratings", requireAuth, async (c) => {
 // bounded; no pagination in v1. Hidden ratings (moderated out) are excluded.
 // Rate-limited by IP via Cache API (60 req/min) to deter scraping.
 ratingRoutes.get("/ratings/:plugin_id", async (c) => {
-  const pluginId = c.req.param("plugin_id");
-  if (!pluginId || pluginId.length > 128) throw badRequest("invalid plugin_id");
+  const pluginId = validateId(c.req.param("plugin_id"));
 
   // Modest IP-based rate limit for a public read endpoint. The Cache API is
   // per-colo so this prevents per-edge abuse, not perfect global throttling —

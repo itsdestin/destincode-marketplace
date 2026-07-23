@@ -1,5 +1,4 @@
 import type { D1Database } from "@cloudflare/workers-types";
-import type { RatingRow } from "./types";
 import { randomToken } from "./lib/crypto";
 
 // Resolve a provider sign-in to an account id, creating account + identity on
@@ -62,15 +61,4 @@ export async function hasInstall(db: D1Database, userId: string, pluginId: strin
     .bind(userId, pluginId)
     .first<{ one: number }>();
   return row !== null;
-}
-
-export async function getRating(
-  db: D1Database,
-  userId: string,
-  pluginId: string
-): Promise<RatingRow | null> {
-  return await db
-    .prepare("SELECT * FROM ratings WHERE user_id = ? AND plugin_id = ?")
-    .bind(userId, pluginId)
-    .first<RatingRow>();
 }

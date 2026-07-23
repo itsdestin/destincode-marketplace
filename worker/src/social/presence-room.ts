@@ -27,15 +27,18 @@ const LAST_SEEN_REFRESH_MS = 5 * 60 * 1000; // coarse refresh so a crashed clien
 // account "Online" forever — worse, it swallowed the real socket's later close
 // because webSocketClose only announced offline at zero remaining sockets.
 //
-// The default is deliberately GENEROUS for rollout: Android builds in the field
-// only send WebSocket *protocol* pings (OkHttp pingInterval), which the edge
-// answers without stamping anything the DO can see. Until the app-level
-// {"type":"ping"} ships on Android (youcoded PR pairing with this change),
-// a tight threshold would evict every fielded Android user on a timer.
-// Tighten toward ~10 min once that release is widespread. Floor: must stay
-// comfortably above the 30s client ping + the 5-min alarm cadence — and beware
-// Android Doze deferring pings on idle devices (see the investigation doc).
-const STALE_DEFAULT_MS = 60 * 60 * 1000;
+// 10 min (Destin's call, 2026-07-22): a closed laptop or dead phone reads
+// "Last seen …" within ~10-15 min (threshold + up to one 5-min alarm tick)
+// instead of pinning "Online". Floor: must stay comfortably above the 30s
+// client ping + the 5-min alarm cadence.
+// Known, accepted rollout cost at beta scale: Android builds WITHOUT the
+// app-level {"type":"ping"} (merged 2026-07-22, unshipped in any APK yet —
+// OkHttp's protocol pings are invisible to the DO) get evicted + auto-reconnect
+// on a ~10-min loop, briefly flapping offline, until they update. Desktop has
+// always sent the app ping and is unaffected. Related: Android Doze defers the
+// ping timer on idle phones — a dozing phone reading "away" is treated as
+// correct behavior, not a bug (see the archived investigation doc).
+const STALE_DEFAULT_MS = 10 * 60 * 1000;
 
 export class PresenceRoom {
   private friendCache = new Map<string, Set<string>>();

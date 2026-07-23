@@ -12,14 +12,71 @@ import type { Env } from "../types";
 import { loadFriendIds, getUserCard, type UserCard } from "./graph";
 
 type Status = "idle" | "in-game";
-interface Attachment { userId: string; card: UserCard; status: Status; }
+// connectedAt/lastActivityAt: liveness seeds — see livenessOf(). Optional so an
+// attachment written by the pre-liveness code deserializes without a crash (it
+// just reads as maximally stale and gets swept on the next alarm).
+interface Attachment { userId: string; card: UserCard; status: Status; connectedAt?: number; lastActivityAt?: number; }
 
 const LAST_SEEN_REFRESH_MS = 5 * 60 * 1000; // coarse refresh so a crashed client doesn't freeze last_seen
+
+// LIVENESS MODEL (2026-07-22 stuck-"Online" fix): "online" means "we heard from
+// you within PRESENCE_STALE_MS", full stop. A clean close frame just makes the
+// user-left announcement prompt; it is no longer the thing presence TRUSTS.
+// Close frames are the one signal networks are allowed to lose (laptop sleep,
+// Wi-Fi drop, force-kill all skip them), and a ghost socket used to pin an
+// account "Online" forever — worse, it swallowed the real socket's later close
+// because webSocketClose only announced offline at zero remaining sockets.
+//
+// The default is deliberately GENEROUS for rollout: Android builds in the field
+// only send WebSocket *protocol* pings (OkHttp pingInterval), which the edge
+// answers without stamping anything the DO can see. Until the app-level
+// {"type":"ping"} ships on Android (youcoded PR pairing with this change),
+// a tight threshold would evict every fielded Android user on a timer.
+// Tighten toward ~10 min once that release is widespread. Floor: must stay
+// comfortably above the 30s client ping + the 5-min alarm cadence — and beware
+// Android Doze deferring pings on idle devices (see the investigation doc).
+const STALE_DEFAULT_MS = 60 * 60 * 1000;
 
 export class PresenceRoom {
   private friendCache = new Map<string, Set<string>>();
 
-  constructor(private state: DurableObjectState, private env: Env) {}
+  constructor(private state: DurableObjectState, private env: Env) {
+    // The edge answers matching pings AND stamps getWebSocketAutoResponseTimestamp
+    // without waking the DO — the liveness heartbeat costs zero invocations.
+    // The pair must byte-match what clients send: desktop's reconnecting-ws
+    // emits JSON.stringify({type:'ping'}) and Android's PresenceClient mirrors
+    // it. Non-matching variants still reach webSocketMessage, whose generic
+    // lastActivityAt stamp keeps them alive (defense in depth).
+    this.state.setWebSocketAutoResponse(
+      new WebSocketRequestResponsePair(JSON.stringify({ type: "ping" }), JSON.stringify({ type: "pong" })),
+    );
+  }
+
+  private staleMs(): number {
+    // Env override exists for tests ([env.test.vars]); production omits it.
+    const n = Number(this.env.PRESENCE_STALE_MS);
+    return Number.isFinite(n) && n > 0 ? n : STALE_DEFAULT_MS;
+  }
+
+  /** Most recent proof-of-life for a socket: connect handshake, any real
+   *  message, or the edge-stamped auto-response ping — whichever is newest. */
+  private livenessOf(sock: WebSocket): number {
+    const att = sock.deserializeAttachment() as Attachment | null;
+    const auto = this.state.getWebSocketAutoResponseTimestamp(sock);
+    return Math.max(att?.connectedAt ?? 0, att?.lastActivityAt ?? 0, auto?.getTime() ?? 0);
+  }
+
+  private isLive(sock: WebSocket, now: number): boolean {
+    return now - this.livenessOf(sock) <= this.staleMs();
+  }
+
+  /** The sockets that count as "online". Every online-semantics decision
+   *  (snapshots, wasOnline, challenge reachability, last-socket-left counting)
+   *  goes through here so there is exactly one definition of presence. Raw
+   *  socketsFor() remains for plain delivery, where a ghost is harmless. */
+  private liveSocketsFor(userId: string, now = Date.now()): WebSocket[] {
+    return this.socketsFor(userId).filter((s) => this.isLive(s, now));
+  }
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -45,7 +102,10 @@ export class PresenceRoom {
     const card = await getUserCard(this.env.DB, userId);
     if (!card) return new Response("no such user", { status: 404 });
 
-    const existingSockets = this.socketsFor(userId);
+    // LIVE sockets only: a ghost must not make a reconnecting account look
+    // "already online" (which would both swallow the user-joined broadcast to
+    // friends and inherit a stale status from the dead socket's attachment).
+    const existingSockets = this.liveSocketsFor(userId);
     const wasOnline = existingSockets.length > 0;
     // New device inherits the account's live status — multi-device must not
     // downgrade an in-game account to idle just because a second device joined.
@@ -55,7 +115,7 @@ export class PresenceRoom {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
     this.state.acceptWebSocket(server, [userId]); // tag = account id (multi-device: N sockets, one tag)
-    server.serializeAttachment({ userId, card, status: inheritedStatus } satisfies Attachment);
+    server.serializeAttachment({ userId, card, status: inheritedStatus, connectedAt: Date.now() } satisfies Attachment);
 
     await this.sendSnapshot(userId, server);
     if (!wasOnline) {
@@ -76,6 +136,10 @@ export class PresenceRoom {
     try { data = JSON.parse(message); } catch { return; }
     const att = ws.deserializeAttachment() as Attachment | null;
     if (!att) return;
+
+    // Any real frame proves the peer is alive — stamp it. (Byte-exact pings
+    // never reach here — the auto-response pair intercepts and stamps those.)
+    ws.serializeAttachment({ ...att, lastActivityAt: Date.now() } satisfies Attachment);
 
     switch (data.type) {
       case "ping":
@@ -100,7 +164,9 @@ export class PresenceRoom {
           this.safeSend(ws, JSON.stringify({ type: "challenge-failed", target }));
           break;
         }
-        const conns = this.socketsFor(target);
+        // Live sockets only: relaying into a ghost strands the challenger on
+        // the waiting screen forever (nothing will ever answer).
+        const conns = this.liveSocketsFor(target);
         if (conns.length === 0) {
           this.safeSend(ws, JSON.stringify({ type: "challenge-failed", target }));
           break;
@@ -123,9 +189,14 @@ export class PresenceRoom {
     const att = ws.deserializeAttachment() as Attachment | null;
     if (!att) return;
     // getWebSockets can still include the closing socket — count OTHERS only.
-    const remaining = this.socketsFor(att.userId).filter((s) => s !== ws);
+    // LIVE others only: counting a ghost here is what pinned accounts "Online"
+    // forever (the real close was swallowed because the ghost kept the count
+    // non-zero). If the ghost later turns out alive after all, its next ping
+    // makes friends' reconnect-snapshots list the account again — self-healing
+    // in both directions.
+    const remaining = this.liveSocketsFor(att.userId).filter((s) => s !== ws);
     if (remaining.length === 0) {
-      await this.writeLastSeen([att.userId]);
+      await this.writeLastSeen([{ id: att.userId, atSec: Math.floor(Date.now() / 1000) }]);
       await this.broadcastToFriends(att.userId, { type: "user-left", id: att.userId });
     }
   }
@@ -135,17 +206,43 @@ export class PresenceRoom {
   }
 
   async alarm(): Promise<void> {
-    // Coarse ~5-minute last_seen refresh for everyone connected (spec §3).
-    const online = new Set<string>();
+    // Two jobs on the same ~5-minute tick: refresh last_seen for live accounts
+    // (spec §3) and sweep ghost sockets (liveness model, top of file).
+    const now = Date.now();
+    const live = new Set<string>();
+    // userId → newest proof-of-life (ms) among that account's stale sockets.
+    const evictedAt = new Map<string, number>();
     for (const sock of this.state.getWebSockets()) {
       const att = sock.deserializeAttachment() as Attachment | null;
-      if (att) online.add(att.userId);
+      if (!att) continue;
+      if (this.isLive(sock, now)) {
+        live.add(att.userId);
+      } else {
+        evictedAt.set(att.userId, Math.max(evictedAt.get(att.userId) ?? 0, this.livenessOf(sock)));
+        // 1001 "going away" — an alive-but-silent client (old Android build)
+        // treats this like any drop and reconnects on its normal backoff.
+        try { sock.close(1001, "stale — no liveness signal"); } catch { /* already closing */ }
+      }
     }
-    if (online.size > 0) {
-      await this.writeLastSeen([...online]);
-      await this.state.storage.setAlarm(Date.now() + LAST_SEEN_REFRESH_MS);
+    // Eviction that empties an account runs the SAME offline path as a clean
+    // close. last_seen gets the ghost's real last proof-of-life, not now() —
+    // "Last seen 3d ago" must not reset to "Active just now" on sweep day.
+    // (writeLastSeen's MAX guard also keeps a 0-liveness legacy attachment
+    // from dragging an existing timestamp backwards.)
+    for (const [userId, lastLiveMs] of evictedAt) {
+      if (live.has(userId)) continue; // another socket is genuinely alive
+      await this.writeLastSeen([{ id: userId, atSec: Math.floor(lastLiveMs / 1000) }]);
+      // Friends following deltas never got a user-left for a ghost — send it.
+      // A duplicate (if the close path already announced) is a no-op filter
+      // client-side, so this stays unconditional and simple.
+      await this.broadcastToFriends(userId, { type: "user-left", id: userId });
     }
-    // No sockets → no reschedule; the next connect re-arms it.
+    if (live.size > 0) {
+      const atSec = Math.floor(now / 1000);
+      await this.writeLastSeen([...live].map((id) => ({ id, atSec })));
+      await this.state.storage.setAlarm(now + LAST_SEEN_REFRESH_MS);
+    }
+    // No live sockets → no reschedule; the next connect re-arms it.
   }
 
   // ---- internals ----
@@ -178,8 +275,12 @@ export class PresenceRoom {
     const friends = await this.friendsOf(userId);
     const users: Array<UserCard & { status: Status }> = [];
     // No per-fid dedup needed: `friends` is a Set, so each id appears once.
+    const now = Date.now();
     for (const fid of friends) {
-      const first = this.socketsFor(fid)[0];
+      // Live sockets only — a ghost must not resurrect a departed friend in
+      // every fresh snapshot (that is exactly the restart-doesn't-fix-it half
+      // of the stuck-"Online" bug).
+      const first = this.liveSocketsFor(fid, now)[0];
       if (!first) continue; // friend not online
       const att = first.deserializeAttachment() as Attachment;
       users.push({ ...att.card, status: att.status });
@@ -197,10 +298,15 @@ export class PresenceRoom {
     }
   }
 
-  private async writeLastSeen(userIds: string[]): Promise<void> {
-    const now = Math.floor(Date.now() / 1000);
+  private async writeLastSeen(entries: Array<{ id: string; atSec: number }>): Promise<void> {
+    if (entries.length === 0) return;
+    // MAX guard: the close path and the eviction sweep can both write for the
+    // same account (idempotent-by-design), and the sweep's timestamp is the
+    // ghost's OLD proof-of-life — last_seen_at must never move backwards.
     await this.env.DB.batch(
-      userIds.map((id) => this.env.DB.prepare("UPDATE users SET last_seen_at = ? WHERE id = ?").bind(now, id))
+      entries.map(({ id, atSec }) =>
+        this.env.DB.prepare("UPDATE users SET last_seen_at = MAX(COALESCE(last_seen_at, 0), ?) WHERE id = ?").bind(atSec, id)
+      )
     );
   }
 }

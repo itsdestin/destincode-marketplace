@@ -1,0 +1,27 @@
+version: 2
+
+# Design + decisions: youcoded-dev/docs/active/specs/2026-07-23-dependabot-design.md
+# Weekly, max 5 open PRs, minor/patch grouped per ecosystem; majors individual.
+# No ignore block: the worker has no native deps, and worker-ci.yml gives every
+# bump a real pre-merge check.
+
+updates:
+  # ---- Cloudflare Worker (hono, wrangler, vitest, @cloudflare/*) ----
+  - package-ecosystem: "npm"
+    directory: "/worker"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      worker-minor-patch:
+        update-types: ["minor", "patch"]
+
+  # ---- GitHub Actions ----
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      actions-minor-patch:
+        update-types: ["minor", "patch"]

@@ -1,0 +1,7 @@
+{
+  "tagline": "Find that thing you half-remember working on.",
+  "longDescription": "Searches every past YouCoded and Claude Code conversation on this device by what you actually typed, then points you at the one that matters. Answers \"did we ever finish that?\" without reopening a dozen sessions.",
+  "tags": ["productivity", "reference"],
+  "lifeArea": ["work"],
+  "audience": "general"
+}

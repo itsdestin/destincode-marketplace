@@ -172,6 +172,20 @@
       "platforms": [
         "macos"
       ]
+    },
+    {
+      "name": "youcoded-chatsearch",
+      "displayName": "Chat Search",
+      "description": "Search your past conversations — find what you worked on and whether it got finished.",
+      "author": {
+        "name": "@destin",
+        "github": "destinationunknown"
+      },
+      "category": "productivity",
+      "source": {
+        "source": "local",
+        "path": "youcoded-chatsearch"
+      }
     }
   ]
 }

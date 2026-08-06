@@ -1,5 +1,5 @@
 {
-  "version": "2026-08-06T07:23:25.907Z",
+  "version": "2026-08-06T07:24:32.838Z",
   "generatedBy": "sync.js",
   "entries": [
     {
@@ -223,6 +223,41 @@
       "components": {
         "skills": [
           "theme-builder"
+        ],
+        "hooks": [],
+        "commands": [],
+        "agents": [],
+        "mcpServers": [],
+        "hasHooksManifest": false,
+        "hasMcpConfig": false
+      }
+    },
+    {
+      "id": "youcoded-chatsearch",
+      "type": "plugin",
+      "displayName": "Chat Search",
+      "description": "Search your past conversations — find what you worked on and whether it got finished.",
+      "category": "productivity",
+      "author": "@destin",
+      "tags": [
+        "productivity",
+        "reference"
+      ],
+      "version": "1.0.0",
+      "publishedAt": "2026-08-06T00:00:00Z",
+      "sourceMarketplace": "youcoded",
+      "sourceType": "local",
+      "sourceRef": "youcoded-chatsearch",
+      "repoUrl": null,
+      "tagline": "Find that thing you half-remember working on.",
+      "longDescription": "Searches every past YouCoded and Claude Code conversation on this device by what you actually typed, then points you at the one that matters. Answers \"did we ever finish that?\" without reopening a dozen sessions.",
+      "lifeArea": [
+        "work"
+      ],
+      "audience": "general",
+      "components": {
+        "skills": [
+          "chatsearch"
         ],
         "hooks": [],
         "commands": [],

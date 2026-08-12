@@ -1,18 +1,48 @@
 # Phase 4b: CI validation for community plugin PRs.
 # Validates structure, security, and uniqueness on PR; auto-rebuilds
-# marketplace.json and skills/index.json on merge to main.
+# marketplace.json and skills/index.json on merge to master.
 # Modeled after wecoded-themes validate-theme.yml / update-registry.yml.
+#
+# LAYOUT ASSUMPTION (the reason this workflow was rewritten): plugins live
+# at the REPO TOP LEVEL (wecoded-themes-plugin/, youcoded-inbox/, ...),
+# each identified by containing a plugin.json (or .claude-plugin/plugin.json).
+# There is no plugins/ folder — the original workflow filtered on
+# 'plugins/**' and branch 'main', so it never fired even once.
 
 name: Validate Plugin PR
 
 on:
   pull_request:
+    # WHY '**' + exclusions instead of a list of plugin dirs: GitHub path
+    # filters can't express "any top-level dir containing plugin.json", and a
+    # hardcoded dir list would silently skip the NEXT plugin someone adds.
+    # So we fire on everything except the known non-plugin areas, and the
+    # "Find changed plugin directories" step below does the precise
+    # "does this top-level dir contain plugin.json?" check. A PR touching
+    # only root files (README.md etc.) still triggers, finds no plugin
+    # dirs, and passes in seconds — cheap and safe.
+    # (marketplace.json and overrides/ stay INCLUDED on purpose: the enum
+    # validation step checks them.)
     paths:
-      - 'plugins/**'
+      - '**'
+      - '!worker/**'
+      - '!scripts/**'
+      - '!docs/**'
+      - '!skills/**'
+      - '!themes/**'
+      - '!integrations/**'
+      - '!.github/**'
   push:
-    branches: [main]
+    branches: [master]  # the repo's default branch is master, not main
     paths:
-      - 'plugins/**'
+      - '**'
+      - '!worker/**'
+      - '!scripts/**'
+      - '!docs/**'
+      - '!skills/**'
+      - '!themes/**'
+      - '!integrations/**'
+      - '!.github/**'
 
 jobs:
   # ── Validation (runs on PRs) ───────────────────────────────────────────────
@@ -21,13 +51,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # need the PR base commit for the diff below
 
       - name: Find changed plugin directories
         id: changed
         run: |
-          PLUGINS=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} \
-            | grep '^plugins/' | cut -d'/' -f2 | sort -u)
-          echo "plugins=$PLUGINS" >> $GITHUB_OUTPUT
+          # WHY cut -f1: plugins are TOP-LEVEL dirs (no plugins/ prefix), so
+          # the first path segment is the plugin id. A changed top-level dir
+          # counts as a plugin only if it contains plugin.json (all current
+          # plugins) or .claude-plugin/plugin.json (the other Claude Code
+          # convention, kept for future submissions). That check is what
+          # keeps worker/, scripts/, root files, etc. out — and it detects
+          # brand-new plugin dirs with no hardcoded list to maintain.
+          CHANGED_TOP=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} \
+            | cut -d'/' -f1 | sort -u)
+          PLUGINS=""
+          for d in $CHANGED_TOP; do
+            if [ -f "$d/plugin.json" ] || [ -f "$d/.claude-plugin/plugin.json" ]; then
+              PLUGINS="$PLUGINS $d"
+            fi
+          done
+          PLUGINS="${PLUGINS# }"
+          # Single line, space-separated — a multi-line value would corrupt GITHUB_OUTPUT
+          echo "plugins=$PLUGINS" >> "$GITHUB_OUTPUT"
           echo "Found changed plugins: $PLUGINS"
 
       - name: Validate plugin.json exists with required fields
@@ -35,7 +82,7 @@ jobs:
           PLUGINS: ${{ steps.changed.outputs.plugins }}
         run: |
           for id in $PLUGINS; do
-            PLUGIN_DIR="plugins/$id"
+            PLUGIN_DIR="$id"  # plugins are top-level dirs — the id IS the path
             if [ ! -d "$PLUGIN_DIR" ]; then
               echo "::error::Plugin directory '$PLUGIN_DIR' does not exist"
               exit 1
@@ -79,7 +126,7 @@ jobs:
         run: |
           FOUND_SECRETS=0
           for id in $PLUGINS; do
-            PLUGIN_DIR="plugins/$id"
+            PLUGIN_DIR="$id"  # plugins are top-level dirs — the id IS the path
 
             # Check for .env files
             if find "$PLUGIN_DIR" -name '.env' -o -name '.env.*' | grep -q .; then
@@ -99,13 +146,17 @@ jobs:
               FOUND_SECRETS=1
             fi
 
-            # Scan file contents for hardcoded API keys/tokens (common patterns)
-            if grep -rl \
+            # Scan file contents for hardcoded API keys/tokens (common patterns).
+            # WHY capture-then-test: `if grep | head` tests head's exit status
+            # (always 0), which made this warning fire on EVERY plugin.
+            MATCHES=$(grep -rl \
                 -e 'sk-[a-zA-Z0-9]\{20,\}' \
                 -e 'AKIA[A-Z0-9]\{16\}' \
                 -e 'ghp_[a-zA-Z0-9]\{36\}' \
                 -e 'gho_[a-zA-Z0-9]\{36\}' \
-                "$PLUGIN_DIR" 2>/dev/null | head -3; then
+                "$PLUGIN_DIR" 2>/dev/null | head -3)
+            if [ -n "$MATCHES" ]; then
+              echo "$MATCHES"
               echo "::warning::Plugin '$id' may contain hardcoded API keys — please review"
             fi
           done
@@ -120,7 +171,7 @@ jobs:
           PLUGINS: ${{ steps.changed.outputs.plugins }}
         run: |
           for id in $PLUGINS; do
-            PLUGIN_DIR="plugins/$id"
+            PLUGIN_DIR="$id"  # plugins are top-level dirs — the id IS the path
             SIZE=$(du -sb "$PLUGIN_DIR" | cut -f1)
             MAX=$((50 * 1024 * 1024))  # 50 MB
             if [ "$SIZE" -gt "$MAX" ]; then
@@ -174,21 +225,29 @@ jobs:
           PLUGINS: ${{ steps.changed.outputs.plugins }}
         run: |
           for id in $PLUGINS; do
-            # Check against marketplace.json (YouCoded entries)
+            # Check against marketplace.json (YouCoded entries).
+            # WHY the "same dir" allowance: plugins live at the repo top level,
+            # so a PR that UPDATES an existing plugin (e.g. youcoded-inbox/)
+            # matches an entry that is simply itself — only a registry entry
+            # pointing somewhere ELSE under the same id is a real collision.
             export PLUGIN_ID="$id"
             if python3 -c "
           import json, sys, os
           pid = os.environ['PLUGIN_ID']
           try:
               data = json.load(open('marketplace.json'))
-              names = [p.get('name', '').split(':')[0] for p in data.get('plugins', [])]
-              if pid in names:
-                  print(f'::error::Plugin ID \"{pid}\" already exists in marketplace.json')
-                  sys.exit(1)
+              for p in data.get('plugins', []):
+                  if p.get('name', '').split(':')[0] != pid:
+                      continue
+                  src = p.get('source') or {}
+                  same_dir = isinstance(src, dict) and src.get('source') == 'local' and src.get('path') == pid
+                  if not same_dir:
+                      print(f'::error::Plugin ID \"{pid}\" already exists in marketplace.json (different source)')
+                      sys.exit(1)
           except FileNotFoundError:
               pass  # No marketplace.json yet — OK
           "; then
-              echo "OK: '$id' not in marketplace.json"
+              echo "OK: '$id' has no conflicting entry in marketplace.json"
             else
               exit 1
             fi
@@ -201,11 +260,13 @@ jobs:
           try:
               data = json.load(open('skills/index.json'))
               entries = data.get('entries', []) if isinstance(data, dict) else data
-              ids = [e.get('id', '') for e in entries]
-              if pid in ids:
-                  # Allow if sourceMarketplace is 'community' (re-submission)
-                  entry = next((e for e in entries if e.get('id') == pid), None)
-                  if entry and entry.get('sourceMarketplace') != 'community':
+              entry = next((e for e in entries if e.get('id') == pid), None)
+              if entry is not None:
+                  # Allow community re-submissions, and allow the entry that IS
+                  # this in-repo plugin (local source pointing at this same dir)
+                  is_community = entry.get('sourceMarketplace') == 'community'
+                  is_self = entry.get('sourceType') == 'local' and entry.get('sourceRef') == pid
+                  if not (is_community or is_self):
                       print(f'::error::Plugin ID \"{pid}\" conflicts with existing entry in skills/index.json')
                       sys.exit(1)
           except FileNotFoundError:
@@ -217,7 +278,7 @@ jobs:
             fi
           done
 
-  # ── Auto-rebuild on merge (runs on push to main) ──────────────────────────
+  # ── Auto-rebuild on merge (runs on push to master) ─────────────────────────
   rebuild:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
@@ -237,12 +298,28 @@ jobs:
       - name: Find merged plugin directories
         id: merged
         run: |
-          PLUGINS=$(git diff --name-only HEAD~1 HEAD \
-            | grep '^plugins/' | cut -d'/' -f2 | sort -u)
-          echo "plugins=$PLUGINS" >> $GITHUB_OUTPUT
+          # WHY cut -f1 + plugin.json check: plugins are TOP-LEVEL dirs (no
+          # plugins/ folder) — a merged top-level dir counts as a plugin only
+          # if it contains plugin.json / .claude-plugin/plugin.json. This is
+          # what keeps worker/, scripts/, root-file merges from triggering an
+          # index rebuild, while new plugin dirs are detected automatically.
+          CHANGED_TOP=$(git diff --name-only HEAD~1 HEAD \
+            | cut -d'/' -f1 | sort -u)
+          PLUGINS=""
+          for d in $CHANGED_TOP; do
+            if [ -f "$d/plugin.json" ] || [ -f "$d/.claude-plugin/plugin.json" ]; then
+              PLUGINS="$PLUGINS $d"
+            fi
+          done
+          PLUGINS="${PLUGINS# }"
+          # Single line, space-separated — a multi-line value would corrupt GITHUB_OUTPUT
+          echo "plugins=$PLUGINS" >> "$GITHUB_OUTPUT"
           echo "Merged plugins: $PLUGINS"
 
+      # Every step below is skipped when the merge touched no plugin dir, so
+      # docs/root-file merges never trigger a rebuild commit.
       - name: Auto-add entries to marketplace.json
+        if: steps.merged.outputs.plugins != ''
         env:
           MERGED_PLUGINS: ${{ steps.merged.outputs.plugins }}
         run: |
@@ -264,10 +341,10 @@ jobs:
                   print(f'  SKIP: {pid} already in marketplace.json')
                   continue
 
-              # Read plugin.json from the merged directory
-              pj_path = f'plugins/{pid}/.claude-plugin/plugin.json'
+              # Read plugin.json from the merged top-level directory
+              pj_path = f'{pid}/.claude-plugin/plugin.json'
               if not os.path.exists(pj_path):
-                  pj_path = f'plugins/{pid}/plugin.json'
+                  pj_path = f'{pid}/plugin.json'
               if not os.path.exists(pj_path):
                   print(f'  WARN: No plugin.json for {pid} — skipping')
                   continue
@@ -282,7 +359,9 @@ jobs:
                   'category': pj.get('category', 'other'),
                   'source': {
                       'source': 'local',
-                      'path': f'plugins/{pid}'
+                      # Top-level layout: the dir name IS the path (matches
+                      # every existing local entry in marketplace.json)
+                      'path': pid
                   },
                   'sourceMarketplace': 'community',
                   'displayName': pj.get('displayName', pj.get('name', pid))
@@ -305,9 +384,11 @@ jobs:
       # — it does not fall back to the root copy. Regenerate the mirror after
       # auto-add so a CC-side re-clone of this repo yields a loadable marketplace.
       - name: Mirror marketplace.json to .claude-plugin/
+        if: steps.merged.outputs.plugins != ''
         run: node scripts/mirror-cc-manifest.js
 
       - name: Rebuild skills/index.json
+        if: steps.merged.outputs.plugins != ''
         env:
           # Use the built-in Actions token so the Tree API gets 5000/hr.
           # Public-repo scope is sufficient — we only read public trees.
@@ -315,6 +396,7 @@ jobs:
         run: node scripts/sync.js
 
       - name: Check extraction failure rate
+        if: steps.merged.outputs.plugins != ''
         run: |
           # Sentinel for "something systemic broke". If >10% of non-deprecated
           # entries failed extraction, fail the build so it lands on Destin's
@@ -330,6 +412,7 @@ jobs:
           "
 
       - name: Commit updated marketplace files
+        if: steps.merged.outputs.plugins != ''
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

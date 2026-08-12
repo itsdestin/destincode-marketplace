@@ -425,9 +425,10 @@ jobs:
           fi
 
   # ── Apple Services validation ──────────────────────────────────────────────
-  # Top-level apple-services/ path (not plugins/*) — scoped separately so the
-  # existing validate job's paths: plugins/** trigger isn't disturbed.
-  # Kicks in only when the PR actually touches apple-services/.
+  # apple-services/ also flows through the main validate job like any other
+  # top-level plugin dir; these jobs add its extra checks (shellcheck,
+  # AppleScript compile, binary sanity). They run on every PR but no-op
+  # via the "touched" gate unless the PR actually changes apple-services/.
   validate-apple-services:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -459,7 +460,8 @@ jobs:
         if: steps.touched.outputs.touched == 'yes'
         run: |
           jq -e '.name == "apple-services"' apple-services/plugin.json
-          jq -e '.version | test("^[0-9]+\.[0-9]+\.[0-9]+$")' apple-services/plugin.json
+          # [.] instead of \. — backslash-dot is an invalid jq string escape (compile error)
+          jq -e '.version | test("^[0-9]+[.][0-9]+[.][0-9]+$")' apple-services/plugin.json
           jq -e '.platforms == ["macos"]' apple-services/plugin.json
 
       - name: Check binary SHA matches
@@ -491,15 +493,20 @@ jobs:
       - name: AppleScript + JXA syntax check
         if: steps.touched.outputs.touched == 'yes'
         run: |
+          # WHY osacompile, not osascript: osascript EXECUTES the script —
+          # mail/send.applescript raises by design with zero args, and anything
+          # touching Mail/Notes dies on TCC permissions in CI. osacompile only
+          # compiles, which is the actual syntax check we want.
+          shopt -s nullglob  # empty glob -> loop skips instead of passing the literal pattern
           fail=0
           for f in apple-services/applescript/*/*.applescript; do
-            if ! osascript -s o "$f" < /dev/null 2>&1; then
+            if ! osacompile -o /dev/null "$f"; then
               echo "::error::$f failed AppleScript syntax check"
               fail=1
             fi
           done
           for f in apple-services/applescript/*/*.jxa; do
-            if ! osascript -l JavaScript -s o "$f" < /dev/null 2>&1; then
+            if ! osacompile -l JavaScript -o /dev/null "$f"; then
               echo "::error::$f failed JXA syntax check"
               fail=1
             fi

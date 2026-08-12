@@ -228,8 +228,9 @@ route_icloud() {
         fi
         # Normal entry
         local type size modified
-        if [ -d "$entry" ]; then type=dir; size=0;
-        else type=file; size=$(stat -f%z "$entry"); fi
+        # Quoted: bare `type=file` trips shellcheck SC2209 (file/dir are command names)
+        if [ -d "$entry" ]; then type="dir"; size=0;
+        else type="file"; size=$(stat -f%z "$entry"); fi
         modified=$(date -u -r "$(stat -f%m "$entry")" +%Y-%m-%dT%H:%M:%SZ)
         jq -cn --arg n "$base" --arg t "$type" --argjson s "$size" --arg m "$modified" '{name: $n, type: $t, size: $s, modified: $m}'
       done | jq -cs .
@@ -286,7 +287,8 @@ route_icloud() {
       [ -e "$full" ] || err_out NOT_FOUND icloud "Not found: $path" "Check the path."
       local name type size modified
       name=$(basename "$full")
-      if [ -d "$full" ]; then type=dir; size=0; else type=file; size=$(stat -f%z "$full"); fi
+      # Quoted: bare `type=file` trips shellcheck SC2209 (file/dir are command names)
+      if [ -d "$full" ]; then type="dir"; size=0; else type="file"; size=$(stat -f%z "$full"); fi
       modified=$(date -u -r "$(stat -f%m "$full")" +%Y-%m-%dT%H:%M:%SZ)
       jq -cn --arg n "$name" --arg t "$type" --argjson s "$size" --arg m "$modified" '{name: $n, type: $t, size: $s, modified: $m}'
       ;;

@@ -193,7 +193,7 @@ accountRoutes.get("/auth/export", requireAuth, async (c) => {
   if (!(await checkRateLimit(`export:${userId}`, 5, 3600))) throw tooMany("too many export requests");
   const db = c.env.DB;
   const all = <T>(r: { results?: T[] }) => r.results ?? [];
-  const [account, identities, sessions, installs, ratings, themeLikes, reports, friendships, requestsIn, requestsOut, blocks] = await Promise.all([
+  const [account, identities, sessions, installs, ratings, thumbs, comments, themeLikes, reports, friendships, requestsIn, requestsOut, blocks] = await Promise.all([
     db.prepare("SELECT id, display_name, avatar_url, handle, status, created_at, last_seen_at FROM users WHERE id = ?").bind(userId).first(),
     db.prepare("SELECT provider, provider_user_id, provider_login, linked_at FROM identities WHERE user_id = ?").bind(userId).all(),
     // Timestamps only — never token_hash. See exclusion note above.
@@ -203,6 +203,11 @@ accountRoutes.get("/auth/export", requireAuth, async (c) => {
     // editing this endpoint, not leak silently through a wildcard.
     db.prepare("SELECT user_id, plugin_id, installed_at FROM installs WHERE user_id = ?").bind(userId).all(),
     db.prepare("SELECT user_id, plugin_id, stars, review_text, created_at, updated_at, hidden FROM ratings WHERE user_id = ?").bind(userId).all(),
+    db.prepare("SELECT user_id, plugin_id, vote, created_at, updated_at FROM thumbs WHERE user_id = ?").bind(userId).all(),
+    // The owner's own comments INCLUDING hidden ones: a comment they wrote is
+    // theirs to export whether or not the classifier let it through, and seeing
+    // `hidden: 1` is how they learn it was held for review.
+    db.prepare("SELECT id, plugin_id, text, created_at, hidden FROM comments WHERE user_id = ?").bind(userId).all(),
     db.prepare("SELECT user_id, theme_id, liked_at FROM theme_likes WHERE user_id = ?").bind(userId).all(),
     // rating_user_id identifies the review the owner CHOSE to report — the one
     // deliberate non-owner id in the export (an opaque account id the owner
@@ -221,6 +226,8 @@ accountRoutes.get("/auth/export", requireAuth, async (c) => {
     sessions: all(sessions),
     installs: all(installs),
     ratings: all(ratings),
+    thumbs: all(thumbs),
+    comments: all(comments),
     theme_likes: all(themeLikes),
     reports: all(reports),
     friendships: all(friendships),

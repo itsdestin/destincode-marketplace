@@ -18,9 +18,28 @@ async function seedRatings(pluginId: string, starValues: number[]): Promise<void
 
 describe("GET /stats", () => {
   beforeEach(async () => {
-    for (const t of ["sessions","users","installs","ratings","theme_likes","reports","device_codes"]) {
+    for (const t of ["sessions","users","installs","ratings","thumbs","comments","theme_likes","reports","device_codes"]) {
       await env.DB.prepare(`DELETE FROM ${t}`).run();
     }
+  });
+
+  it("counts thumbs up and down per plugin, and defaults both to 0", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    for (const [uid, vote] of [["u-a", 1], ["u-b", -1], ["u-c", 1]] as const) {
+      await env.DB.prepare("INSERT INTO users (id, display_name, created_at) VALUES (?, ?, ?)")
+        .bind(uid, uid, now).run();
+      await env.DB.prepare("INSERT INTO thumbs (user_id, plugin_id, vote, created_at, updated_at) VALUES (?, 'voted', ?, ?, ?)")
+        .bind(uid, vote, now, now).run();
+    }
+    await env.DB.prepare("INSERT INTO installs (user_id, plugin_id, installed_at) VALUES ('u-a', 'installed-only', ?)")
+      .bind(now).run();
+
+    const body = await (await SELF.fetch("https://test.local/stats"))
+      .json<{ plugins: Record<string, { installs: number; thumbs_up: number; thumbs_down: number }> }>();
+    expect(body.plugins["voted"]).toMatchObject({ thumbs_up: 2, thumbs_down: 1 });
+    // A plugin with installs but no votes must report 0/0, not undefined — the
+    // card reads these directly.
+    expect(body.plugins["installed-only"]).toMatchObject({ installs: 1, thumbs_up: 0, thumbs_down: 0 });
   });
 
   it("returns per-plugin install counts", async () => {

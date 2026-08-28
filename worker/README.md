@@ -1,6 +1,6 @@
 # Marketplace Worker
 
-Cloudflare Worker backing install tracking, ratings, and theme likes for the YouCoded marketplace.
+Cloudflare Worker backing install tracking, ratings, **thumbs + comments**, and theme likes for the YouCoded marketplace.
 
 ## Local dev
 
@@ -57,6 +57,28 @@ npx wrangler d1 execute marketplace --remote --command \
    npx wrangler d1 execute marketplace --remote --command \
      "UPDATE reports SET resolved_at=strftime('%s','now'), resolution='dismissed' WHERE id='<report_id>';"
    ```
+
+### Comments (marketplace overhaul)
+
+Comments have **no** user-facing Report button in v1 and therefore no report queue, so the
+recent-comments list *is* the queue:
+
+- `GET /admin/comments` — the 100 most recent visible comments, newest first. Add `?hidden=1`
+  to see what has already been taken down, `?limit=` up to 500.
+- `DELETE /admin/comments/<id>` — hides one. Returns `404` if the id is unknown, so a stale
+  list reports itself instead of claiming success.
+
+Both need an admin GitHub identity, the same gate as `DELETE /admin/ratings/...`. Hiding sets
+`hidden = 1` and **never deletes the row** — a mistaken takedown is reversible and the row is
+the only record the comment existed. **This is the only takedown path in v1.**
+
+`POST /comments` runs the same `llama-guard-3-8b` classifier as reviews; flagged text is
+stored with `hidden = 1` and never listed by `GET /comments/<id>`. Note the classifier
+**fails open** when the AI binding is missing, and it is missing under test — so this path is
+only ever exercised in production, which is exactly why the admin routes above exist.
+
+Thumbs (`POST /thumbs`) carry no text and are not classified; they are install-gated instead
+(one vote per account per plugin, `value: null` clears it).
 
 ## D1 backups
 

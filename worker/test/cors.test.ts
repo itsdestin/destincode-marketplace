@@ -42,6 +42,38 @@ describe("CORS — public read endpoints", () => {
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
   });
 
+  it("GET /comments accepts any origin, for a plugin id AND a bundle-member id", async () => {
+    // Android's WebView sends `Origin: null`. A miss here is a CORS block, not
+    // a 404 — the member id (two segments) is the case a single-segment matcher
+    // would silently reject.
+    for (const path of ["/comments/some-plugin", "/comments/some-bundle/some-member"]) {
+      const res = await SELF.fetch(`https://test.local${path}`, {
+        headers: { Origin: "null" },
+      });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    }
+  });
+
+  it("OPTIONS preflight for GET /comments from null origin succeeds, one and two segments", async () => {
+    for (const path of ["/comments/some-plugin", "/comments/some-bundle/some-member"]) {
+      const res = await SELF.fetch(`https://test.local${path}`, {
+        method: "OPTIONS",
+        headers: { Origin: "null", "Access-Control-Request-Method": "GET" },
+      });
+      expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    }
+  });
+
+  it("a THREE-segment comment path is not a public read — it falls through to strict", async () => {
+    // Guards the `parts.length <= 2` bound: an arbitrarily deep path must not
+    // inherit the wildcard CORS the two known shapes get.
+    const res = await SELF.fetch("https://test.local/comments/a/b/c", {
+      headers: { Origin: "null" },
+    });
+    expect(res.headers.get("Access-Control-Allow-Origin")).not.toBe("*");
+  });
+
   it("OPTIONS preflight for GET /ratings/:plugin_id from null origin succeeds", async () => {
     const res = await SELF.fetch("https://test.local/ratings/some-plugin", {
       method: "OPTIONS",

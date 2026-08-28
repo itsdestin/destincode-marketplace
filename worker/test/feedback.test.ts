@@ -189,3 +189,51 @@ describe("GET /thumbs/:plugin_id", () => {
     expect(await res.json()).toEqual({ vote: null });
   });
 });
+
+describe("admin comment takedown", () => {
+  beforeEach(async () => {
+    for (const t of TABLES) await env.DB.prepare(`DELETE FROM ${t}`).run();
+  });
+
+  // 424242 is the admin github id in wrangler.toml [env.test.vars] ADMIN_USER_IDS.
+  const asAdmin = async () => ({
+    Authorization: `Bearer ${await issueTestSession(await createTestAccount({ githubId: "424242", login: "admin" }))}`,
+  });
+
+  it("an admin can hide a comment, and a non-admin cannot", async () => {
+    const { token: authorToken } = await seed("u");
+    await post("/comments", authorToken, { plugin_id: "foo", text: "something awful" });
+    const { comments } = await (await SELF.fetch("https://test.local/comments/foo")).json<{ comments: Array<{ id: string }> }>();
+    const id = comments[0]!.id;
+
+    // A signed-in non-admin is refused 403, not 401 — they ARE authenticated.
+    expect((await SELF.fetch(`https://test.local/admin/comments/${id}`, {
+      method: "DELETE", headers: { Authorization: `Bearer ${authorToken}` },
+    })).status).toBe(403);
+
+    const admin = await asAdmin();
+    expect((await SELF.fetch(`https://test.local/admin/comments/${id}`, { method: "DELETE", headers: admin })).status).toBe(200);
+
+    // Gone from the public read, still in the table, and visible in the admin queue.
+    expect((await (await SELF.fetch("https://test.local/comments/foo")).json<{ comments: unknown[] }>()).comments).toEqual([]);
+    const row = await env.DB.prepare("SELECT hidden FROM comments WHERE id = ?").bind(id).first<{ hidden: number }>();
+    expect(row).toEqual({ hidden: 1 });
+    const q = await (await SELF.fetch("https://test.local/admin/comments?hidden=1", { headers: admin })).json<{ comments: Array<{ id: string }> }>();
+    expect(q.comments.map((c) => c.id)).toEqual([id]);
+  });
+
+  it("hiding an id that is not there reports it, rather than claiming success", async () => {
+    expect((await SELF.fetch("https://test.local/admin/comments/nope", {
+      method: "DELETE", headers: await asAdmin(),
+    })).status).toBe(404);
+  });
+
+  it("the queue defaults to visible comments and is refused to a non-admin", async () => {
+    const { token } = await seed("plain");
+    await post("/comments", token, { plugin_id: "foo", text: "hello there" });
+    expect((await SELF.fetch("https://test.local/admin/comments", { headers: { Authorization: `Bearer ${token}` } })).status).toBe(403);
+    const q = await (await SELF.fetch("https://test.local/admin/comments", { headers: await asAdmin() })).json<{ comments: Array<{ text: string; hidden: number }> }>();
+    expect(q.comments.map((c) => c.text)).toEqual(["hello there"]);
+    expect(q.comments[0]!.hidden).toBe(0);
+  });
+});

@@ -10,7 +10,8 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import type { HonoEnv } from "../types";
 import { requireAuth } from "../auth/middleware";
-import { badRequest, forbidden, tooMany } from "../lib/errors";
+import { requireAdminAccount } from "../auth/admin";
+import { badRequest, forbidden, notFound, tooMany } from "../lib/errors";
 import { validateId } from "../lib/validate";
 import { parseJsonBody } from "../lib/parse-json";
 import { checkRateLimit } from "../lib/rate-limit";
@@ -164,3 +165,30 @@ async function myVote(c: Context<HonoEnv>, pluginId: string) {
 }
 feedbackRoutes.get("/thumbs/:bundle/:name", requireAuth, (c) => myVote(c, `${c.req.param("bundle")}/${c.req.param("name")}`));
 feedbackRoutes.get("/thumbs/:plugin_id", requireAuth, (c) => myVote(c, c.req.param("plugin_id")));
+
+// ── Moderation ────────────────────────────────────────────────────────────
+// There is no Report button in v1 and no report queue behind it, so the queue IS
+// the recent-comments list: an admin reads it and hides what does not belong.
+// Same gate and same `hidden` flag as DELETE /admin/ratings/:user_id/:plugin_id.
+// No UI: these are curl-from-a-terminal routes, called with an admin session
+// token. Not public read paths, so they need no CORS entry.
+feedbackRoutes.get("/admin/comments", requireAuth, async (c) => {
+  await requireAdminAccount(c);
+  const hidden = c.req.query("hidden") === "1" ? 1 : 0;
+  const limit = Math.min(Number(c.req.query("limit")) || 100, 500);
+  const { results } = await c.env.DB
+    .prepare("SELECT id, plugin_id, user_id, text, created_at, hidden FROM comments WHERE hidden = ? ORDER BY created_at DESC LIMIT ?")
+    .bind(hidden, limit).all();
+  return c.json({ comments: results });
+});
+
+// Hides, never deletes: a takedown must be reversible, and the row is the only
+// record that the comment existed at all.
+feedbackRoutes.delete("/admin/comments/:id", requireAuth, async (c) => {
+  await requireAdminAccount(c);
+  const res = await c.env.DB.prepare("UPDATE comments SET hidden = 1 WHERE id = ?").bind(c.req.param("id")).run();
+  // changes === 0 means the caller's list was stale — say so rather than
+  // claiming a success that never happened.
+  if (res.meta.changes === 0) throw notFound("comment not found");
+  return c.json({ ok: true });
+});

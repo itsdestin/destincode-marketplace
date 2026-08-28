@@ -355,3 +355,54 @@ test('an index without storeRoot refuses writes and says why', async () => {
   const out = await runChatsearch({ cmd: 'flag', ids: ['a3f2'], flag: 'complete', value: true }, env(home));
   assert.match(out, /this index was written by an older YouCoded — update YouCoded, open it once, then retry/);
 });
+
+// Fix round 1 — Finding 1: an ambiguous id's candidate list must not rewrite
+// real conversation titles that happen to contain the word "show".
+test('an ambiguous short id on a write command leaves candidate titles untouched and names the write verb', async () => {
+  const home = fixture();
+  const metaPath = path.join(home, '.youcoded', 'chatsearch', 'claude-meta.json');
+  const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+  // Second conversation sharing the 'a3f2' prefix, titled with the word "show"
+  // in it — a blind /\bshow\b/g replace over resolveId's message would mangle
+  // this title while rewriting the instructional sentence.
+  meta.conversations.a3f2cccc = { ...meta.conversations.a3f2aaaa, id: 'a3f2cccc', title: 'How to show a modal' };
+  fs.writeFileSync(metaPath, JSON.stringify(meta));
+
+  const out = await runChatsearch({ cmd: 'flag', ids: ['a3f2'], flag: 'complete', value: true }, env(home));
+  assert.match(out, /How to show a modal/); // title unchanged
+  assert.match(out, /Re-run flag with one of the full ids above\./); // instruction names the verb
+  assert.equal(fs.existsSync(OUTBOX(home)) ? readRequests(home).length : 0, 0); // still refused, nothing written
+});
+
+// Fix round 1 — Finding 2: an unrecognised receipt status must not silently
+// vanish from the summary line's totals.
+test('an unknown receipt status is folded into an "other" bucket that still sums to the result count', async () => {
+  const home = fixture();
+  fakeApp(home, 'r2', [
+    { provider: 'claude', id: 'a3f2aaaa', op: 'flag', status: 'applied' },
+    { provider: 'claude', id: '9c14bbbb', op: 'flag', status: 'weird-status' },
+  ]);
+  const out = await runChatsearch({ cmd: 'receipt', id: 'r2' }, env(home));
+  assert.match(out, /applied 1 · already 0 · not found 0 · refused 0 · error 0 · other 1 \(weird-status\)/);
+});
+
+// Fix round 1 — Finding 4: cmdFlag's own guard rejections, mirroring the
+// existing coverage for cmdTag/cmdNote.
+test('flag refuses a bad flag name or a non-boolean value, writing nothing', async () => {
+  const home = fixture();
+  const badFlag = await runChatsearch({ cmd: 'flag', ids: ['a3f2'], flag: 'nope', value: true }, env(home));
+  assert.match(badFlag, /flag needs "flag": "complete" or "priority"/);
+  const badValue = await runChatsearch({ cmd: 'flag', ids: ['a3f2'], flag: 'complete', value: 'yes' }, env(home));
+  assert.match(badValue, /flag needs "value": true or false/);
+  assert.equal(fs.existsSync(OUTBOX(home)) ? readRequests(home).length : 0, 0);
+});
+
+// Fix round 1 — Finding 5: a short id and its own full id in the same
+// request must collapse to one target, not two.
+test('resolveIds dedups a short id and its own full id to a single target', async () => {
+  const home = fixture();
+  await runChatsearch({ cmd: 'flag', ids: ['a3f2', 'a3f2aaaa'], flag: 'complete', value: true }, env(home));
+  const [req] = readRequests(home);
+  assert.equal(req.ops[0].targets.length, 1);
+  assert.deepEqual(req.ops[0].targets, [{ provider: 'claude', id: 'a3f2aaaa' }]);
+});

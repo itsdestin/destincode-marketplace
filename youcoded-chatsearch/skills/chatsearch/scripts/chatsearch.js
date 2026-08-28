@@ -1,6 +1,8 @@
 /**
- * chatsearch — a read-only CLI over the conversation index the YouCoded desktop
- * app writes to `~/.youcoded/chatsearch/`.
+ * chatsearch — a CLI over the conversation index the YouCoded desktop app
+ * writes to `~/.youcoded/chatsearch/`. Alongside read commands (find/show/status)
+ * it also queues writes (flag/tag/note/close) into the app's outbox, which the
+ * app applies the next time it is running — this CLI never edits the index itself.
  *
  * WHY this file imports nothing from the app: it ships as a marketplace plugin
  * in a different repository, with a different toolchain, and cannot reach the
@@ -730,11 +732,19 @@ async function cmdFind(req, index, now) {
   return out.join('\n');
 }
 
-/** Resolve an id or unique prefix. Returns { entry } or { message }. */
-function resolveId(index, rawId) {
+/**
+ * Resolve an id or unique prefix. Returns { entry } or { message }.
+ * WHY the verb param: the instructional sentences below name the command the
+ * caller ran (defaults to 'show', its original and only caller before writes
+ * existed) so resolveIds (below) can pass 'flag'/'tag'/etc through instead of
+ * rewriting the word "show" inside this message after the fact — the message
+ * for an ambiguous id embeds real conversation titles verbatim, and a blind
+ * text replace would corrupt any title that happens to contain "show".
+ */
+function resolveId(index, rawId, verb = 'show') {
   const id = String(rawId || '').trim().toLowerCase();
   if (!id) {
-    return { message: 'show needs an id — run find first and use the short id from the first column' };
+    return { message: `${verb} needs an id — run find first and use the short id from the first column` };
   }
   const exact = index.conversations.filter((e) => e.id.toLowerCase() === id);
   if (exact.length === 1) return { entry: exact[0] };
@@ -755,7 +765,7 @@ function resolveId(index, rawId) {
     if (sorted.length > shown.length) {
       lines.push(`  … and ${sorted.length - shown.length} more — use a longer id prefix`);
     }
-    lines.push('Re-run show with one of the full ids above.');
+    lines.push(`Re-run ${verb} with one of the full ids above.`);
     return { message: lines.join('\n') };
   }
   return { entry: matches[0] };
@@ -767,8 +777,10 @@ function resolveIds(index, rawIds, verb) {
   if (!list.length) return { message: `${verb} needs "ids": a list of conversation ids (short ids from find are fine)` };
   const entries = []; const seen = new Set();
   for (const raw of list) {
-    const r = resolveId(index, raw);
-    if (r.message) return { message: r.message.replace(/\bshow\b/g, verb) };
+    // WHY: pass verb straight into resolveId rather than post-processing its
+    // message — see the WHY on resolveId itself.
+    const r = resolveId(index, raw, verb);
+    if (r.message) return { message: r.message };
     if (seen.has(r.entry.id)) continue;
     seen.add(r.entry.id); entries.push(r.entry);
   }
@@ -809,17 +821,28 @@ async function submitRequest(index, ops, env) {
   return { message: `Queued: YouCoded is not running, or is busy. The change applies the next time it opens (request ${id}).` };
 }
 
+const KNOWN_RECEIPT_STATUSES = ['applied', 'already', 'not-found', 'refused', 'error'];
+
 function renderReceipt(rc, index) {
   const lines = [];
   if (rc.error) { lines.push(`YouCoded could not use this request: ${rc.error}`); return lines.join('\n'); }
   const titles = new Map(index.conversations.map((e) => [e.id, e.title || '(untitled)']));
   const counts = { applied: 0, already: 0, 'not-found': 0, refused: 0, error: 0 };
+  // WHY otherStatuses: an app version newer than this CLI could return a status
+  // this CLI has never heard of. Without tracking it separately the printed
+  // summary's five numbers would silently sum to less than the result count.
+  const otherStatuses = new Set();
   for (const r of rc.results || []) {
     counts[r.status] = (counts[r.status] || 0) + 1;
+    if (!KNOWN_RECEIPT_STATUSES.includes(r.status)) otherStatuses.add(r.status);
     lines.push(`  ${r.id}  ${titles.get(r.id) || ''}  ${r.op}: ${r.status}${r.error ? ` — ${r.error}` : ''}`);
   }
   for (const t of rc.createdTags || []) lines.push(`  created tag "${t.label}"`);
-  lines.push(`applied ${counts.applied} · already ${counts.already} · not found ${counts['not-found']} · refused ${counts.refused} · error ${counts.error}`);
+  const otherCount = Object.keys(counts)
+    .filter((status) => !KNOWN_RECEIPT_STATUSES.includes(status))
+    .reduce((sum, status) => sum + counts[status], 0);
+  const summary = `applied ${counts.applied} · already ${counts.already} · not found ${counts['not-found']} · refused ${counts.refused} · error ${counts.error}`;
+  lines.push(otherCount ? `${summary} · other ${otherCount} (${[...otherStatuses].join(', ')})` : summary);
   return lines.join('\n');
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "youcoded-chatsearch",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Search your past YouCoded and Claude Code conversations — find what you worked on, when, and whether it got finished.",
   "author": { "name": "@destin" },
   "homepage": "https://github.com/itsdestin/wecoded-marketplace/tree/master/youcoded-chatsearch",

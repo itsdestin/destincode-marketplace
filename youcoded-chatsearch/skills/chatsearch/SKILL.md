@@ -53,6 +53,8 @@ JSON
 
 Argv wins when both are given.
 
+Claude Code and YouCoded's own harness both fill in `${CLAUDE_PLUGIN_ROOT}`; if it comes through empty, the plugin lives at `~/.claude/plugins/marketplaces/youcoded/plugins/youcoded-chatsearch/`.
+
 ## Commands
 
 ### `find` — browse and search
@@ -113,6 +115,26 @@ guessing — re-run with one of the full ids it prints.
 
 Per provider: how fresh the index is, how many conversations, how many indexed
 user turns.
+
+## Changing things
+
+Five write commands. Each takes `ids` (a list; short ids from `find` are fine)
+and writes a request the app applies — the tool itself never edits anything.
+
+| Command | Request |
+|---|---|
+| `close` | `{"cmd":"close","ids":[…],"reason":"…"}` — mark complete **and** add a dated note line. Prefer this over a bare `flag`. The two are separate ops in one request: if the note would exceed the 8,000-char cap it comes back `refused` while the `complete` flag still comes back `applied` — the conversation ends up marked complete with no note added. Check the note result, not just the summary. |
+| `flag` | `{"cmd":"flag","ids":[…],"flag":"complete"\|"priority","value":true\|false}` |
+| `tag` | `{"cmd":"tag","ids":[…],"add":["label"],"remove":["label"],"create":false}` — unknown labels are refused unless `"create": true`; say so when you create one. |
+| `note` | `{"cmd":"note","ids":[…],"mode":"set"\|"append","text":"…"}` — `set` replaces, `append` adds `<date>: text`. Refused if the result would exceed 8,000 characters. |
+| `receipt` | `{"cmd":"receipt","id":"…"}` — fetch the result of a write that came back `Queued`. |
+
+Rules:
+- **Show the user the list before any write touching more than five conversations**, and wait for a yes.
+- `Queued: YouCoded is not running…` is not a failure. The change lands when the app opens; check with `receipt` if it matters now. **Never re-send a write that came back `Queued`.**
+- **The receipt is the confirmation.** The search index catches up a few seconds after a write, so a `find` run right away still shows the old state — do not re-run `find` to check, and do not conclude the write failed.
+- One unknown id refuses the whole command before anything is written — fix the id and re-run.
+- Every result line says `applied`, `already` (nothing changed), `not-found`, `refused` (with why) or `error`. (The summary line below it spells this one out as "not found" — the per-line token is hyphenated.) Report the summary line to the user verbatim.
 
 ## Reading the output honestly
 

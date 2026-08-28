@@ -1,6 +1,8 @@
 /**
- * chatsearch — a read-only CLI over the conversation index the YouCoded desktop
- * app writes to `~/.youcoded/chatsearch/`.
+ * chatsearch — a CLI over the conversation index the YouCoded desktop app
+ * writes to `~/.youcoded/chatsearch/`. Alongside read commands (find/show/status)
+ * it also queues writes (flag/tag/note/close) into the app's outbox, which the
+ * app applies the next time it is running — this CLI never edits the index itself.
  *
  * WHY this file imports nothing from the app: it ships as a marketplace plugin
  * in a different repository, with a different toolchain, and cannot reach the
@@ -21,6 +23,9 @@ import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
+// WHY: write commands (flag/tag/note/close) need a request id — env.uuid lets
+// tests inject a deterministic one instead of a real random UUID.
+import { randomUUID } from 'node:crypto';
 
 // The app writes one pair of files per provider lane. Adding a lane here is the
 // only change needed on this side, because everything else reads the entry's
@@ -727,11 +732,19 @@ async function cmdFind(req, index, now) {
   return out.join('\n');
 }
 
-/** Resolve an id or unique prefix. Returns { entry } or { message }. */
-function resolveId(index, rawId) {
+/**
+ * Resolve an id or unique prefix. Returns { entry } or { message }.
+ * WHY the verb param: the instructional sentences below name the command the
+ * caller ran (defaults to 'show', its original and only caller before writes
+ * existed) so resolveIds (below) can pass 'flag'/'tag'/etc through instead of
+ * rewriting the word "show" inside this message after the fact — the message
+ * for an ambiguous id embeds real conversation titles verbatim, and a blind
+ * text replace would corrupt any title that happens to contain "show".
+ */
+function resolveId(index, rawId, verb = 'show') {
   const id = String(rawId || '').trim().toLowerCase();
   if (!id) {
-    return { message: 'show needs an id — run find first and use the short id from the first column' };
+    return { message: `${verb} needs an id — run find first and use the short id from the first column` };
   }
   const exact = index.conversations.filter((e) => e.id.toLowerCase() === id);
   if (exact.length === 1) return { entry: exact[0] };
@@ -752,10 +765,128 @@ function resolveId(index, rawId) {
     if (sorted.length > shown.length) {
       lines.push(`  … and ${sorted.length - shown.length} more — use a longer id prefix`);
     }
-    lines.push('Re-run show with one of the full ids above.');
+    lines.push(`Re-run ${verb} with one of the full ids above.`);
     return { message: lines.join('\n') };
   }
   return { entry: matches[0] };
+}
+
+/** Resolve every id up front; one bad id refuses the whole write. */
+function resolveIds(index, rawIds, verb) {
+  const list = Array.isArray(rawIds) ? rawIds : rawIds ? [rawIds] : [];
+  if (!list.length) return { message: `${verb} needs "ids": a list of conversation ids (short ids from find are fine)` };
+  const entries = []; const seen = new Set();
+  for (const raw of list) {
+    // WHY: pass verb straight into resolveId rather than post-processing its
+    // message — see the WHY on resolveId itself.
+    const r = resolveId(index, raw, verb);
+    if (r.message) return { message: r.message };
+    if (seen.has(r.entry.id)) continue;
+    seen.add(r.entry.id); entries.push(r.entry);
+  }
+  return { entries };
+}
+
+function storeRootOf(index) {
+  for (const p of index.providers) if (p.present && p.meta && typeof p.meta.storeRoot === 'string' && p.meta.storeRoot) return p.meta.storeRoot;
+  return null;
+}
+// WHY no version number: the release that carries this is not fixed, and a wrong one is a misleading error.
+const NO_STORE_ROOT = 'this index was written by an older YouCoded — update YouCoded, open it once, then retry';
+
+const targetsOf = (entries) => entries.map((e) => ({ provider: e.provider, id: e.id }));
+
+/**
+ * Write a request file to the outbox and wait briefly for the app to drop a
+ * receipt. The app is not necessarily running, so a timeout is a normal
+ * outcome — see the Queued: message below, not an error path.
+ */
+async function submitRequest(index, ops, env) {
+  const storeRoot = storeRootOf(index);
+  if (!storeRoot) return { message: NO_STORE_ROOT };
+  const id = (env.uuid || randomUUID)();
+  const dir = path.join(index.dir, 'outbox');
+  await fsp.mkdir(path.join(dir, 'done'), { recursive: true });
+  const req = { v: 1, id, createdAt: new Date().toISOString(), storeRoot, ops };
+  const target = path.join(dir, `${id}.json`);
+  const tmp = `${target}.tmp-${process.pid}`;
+  await fsp.writeFile(tmp, JSON.stringify(req, null, 2), 'utf8');
+  await fsp.rename(tmp, target);
+  const ackPath = path.join(dir, 'done', `${id}.ack.json`);
+  const deadline = Date.now() + (typeof env.receiptTimeoutMs === 'number' ? env.receiptTimeoutMs : 2000);
+  while (Date.now() < deadline) {
+    try { return { receipt: JSON.parse(await fsp.readFile(ackPath, 'utf8')) }; } catch { /* not yet */ }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return { message: `Queued: YouCoded is not running, or is busy. The change applies the next time it opens (request ${id}).` };
+}
+
+const KNOWN_RECEIPT_STATUSES = ['applied', 'already', 'not-found', 'refused', 'error'];
+
+function renderReceipt(rc, index) {
+  const lines = [];
+  if (rc.error) { lines.push(`YouCoded could not use this request: ${rc.error}`); return lines.join('\n'); }
+  const titles = new Map(index.conversations.map((e) => [e.id, e.title || '(untitled)']));
+  const counts = { applied: 0, already: 0, 'not-found': 0, refused: 0, error: 0 };
+  // WHY otherStatuses: an app version newer than this CLI could return a status
+  // this CLI has never heard of. Without tracking it separately the printed
+  // summary's five numbers would silently sum to less than the result count.
+  const otherStatuses = new Set();
+  for (const r of rc.results || []) {
+    counts[r.status] = (counts[r.status] || 0) + 1;
+    if (!KNOWN_RECEIPT_STATUSES.includes(r.status)) otherStatuses.add(r.status);
+    lines.push(`  ${r.id}  ${titles.get(r.id) || ''}  ${r.op}: ${r.status}${r.error ? ` — ${r.error}` : ''}`);
+  }
+  for (const t of rc.createdTags || []) lines.push(`  created tag "${t.label}"`);
+  const otherCount = Object.keys(counts)
+    .filter((status) => !KNOWN_RECEIPT_STATUSES.includes(status))
+    .reduce((sum, status) => sum + counts[status], 0);
+  const summary = `applied ${counts.applied} · already ${counts.already} · not found ${counts['not-found']} · refused ${counts.refused} · error ${counts.error}`;
+  lines.push(otherCount ? `${summary} · other ${otherCount} (${[...otherStatuses].join(', ')})` : summary);
+  return lines.join('\n');
+}
+
+/** Shared shell for the write commands: resolve ids, build ops, submit, render. */
+async function cmdWrite(req, index, now, env, verb, buildOps) {
+  const out = [];
+  const banner = stalenessBanner(index, now);
+  if (banner) out.push(banner);
+  out.push(...index.problems);
+  const resolved = resolveIds(index, req.ids, verb);
+  if (resolved.message) { out.push(resolved.message); return out.join('\n'); }
+  const built = buildOps(targetsOf(resolved.entries));
+  if (built.message) { out.push(built.message); return out.join('\n'); }
+  const sent = await submitRequest(index, built.ops, env);
+  out.push(sent.message ? sent.message : renderReceipt(sent.receipt, index));
+  return out.join('\n');
+}
+
+const cmdFlag = (req, index, now, env) => cmdWrite(req, index, now, env, 'flag', (targets) => {
+  if (req.flag !== 'complete' && req.flag !== 'priority') return { message: 'flag needs "flag": "complete" or "priority"' };
+  if (typeof req.value !== 'boolean') return { message: 'flag needs "value": true or false' };
+  return { ops: [{ op: 'flag', targets, flag: req.flag, value: req.value }] };
+});
+const cmdTag = (req, index, now, env) => cmdWrite(req, index, now, env, 'tag', (targets) => {
+  const strs = (x) => Array.isArray(x) ? x.filter((s) => typeof s === 'string' && s.trim()).map((s) => s.trim()) : [];
+  const add = strs(req.add); const remove = strs(req.remove);
+  if (!add.length && !remove.length) return { message: 'tag needs "add" and/or "remove": lists of tag labels' };
+  return { ops: [{ op: 'tag', targets, add, remove, create: req.create === true }] };
+});
+const cmdNote = (req, index, now, env) => cmdWrite(req, index, now, env, 'note', (targets) => {
+  if (req.mode !== 'set' && req.mode !== 'append') return { message: 'note needs "mode": "set" or "append"' };
+  if (typeof req.text !== 'string') return { message: 'note needs "text"' };
+  return { ops: [{ op: 'note', targets, mode: req.mode, text: req.text }] };
+});
+const cmdClose = (req, index, now, env) => cmdWrite(req, index, now, env, 'close', (targets) => {
+  if (typeof req.reason !== 'string' || !req.reason.trim()) return { message: 'close needs "reason": one line on why this conversation is done' };
+  return { ops: [{ op: 'flag', targets, flag: 'complete', value: true }, { op: 'note', targets, mode: 'append', text: req.reason.trim() }] };
+});
+async function cmdReceipt(req, index) {
+  const id = String(req.id || '').trim();
+  if (!id) return 'receipt needs "id": the request id printed by a Queued write';
+  try { return renderReceipt(JSON.parse(await fsp.readFile(path.join(index.dir, 'outbox', 'done', `${id}.ack.json`), 'utf8')), index); }
+  // WHY two causes: receipts are deleted after 24 h, so "not applied" alone would be wrong for an old request.
+  catch { return `no receipt for request ${id} — either YouCoded has not applied it yet (is it open?), or it applied more than a day ago and the receipt has been cleaned up`; }
 }
 
 function metadataBlock(entry) {
@@ -950,6 +1081,11 @@ const USAGE = [
   '  {"cmd":"show","id":"a3f2"}',
   '  {"cmd":"show","id":"a3f2","turns":"12-18"}',
   '  {"cmd":"status"}',
+  '  {"cmd":"close","ids":["a3f2","9c14"],"reason":"superseded by PR #339"}',
+  '  {"cmd":"flag","ids":["a3f2"],"flag":"complete","value":false}',
+  '  {"cmd":"tag","ids":["a3f2"],"add":["superseded"],"remove":["wip"],"create":false}',
+  '  {"cmd":"note","ids":["a3f2"],"mode":"append","text":"handed off to the Phase D session"}',
+  '  {"cmd":"receipt","id":"<request id from a Queued write>"}',
 ].join('\n');
 
 // ---------------------------------------------------------------------------
@@ -993,6 +1129,11 @@ export async function runChatsearch(req = {}, env = {}) {
 
   if (cmd === 'find') return cmdFind(req, index, now);
   if (cmd === 'show') return cmdShow(req, index, now);
+  if (cmd === 'flag') return cmdFlag(req, index, now, env);
+  if (cmd === 'tag') return cmdTag(req, index, now, env);
+  if (cmd === 'note') return cmdNote(req, index, now, env);
+  if (cmd === 'close') return cmdClose(req, index, now, env);
+  if (cmd === 'receipt') return cmdReceipt(req, index);
   return `unknown command "${req.cmd}".\n\n${USAGE}`;
 }
 

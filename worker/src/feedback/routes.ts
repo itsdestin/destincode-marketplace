@@ -22,6 +22,31 @@ import { parseVote, validateCommentText } from "./validate";
 
 export const feedbackRoutes = new Hono<HonoEnv>();
 
+/** The plugin's vote totals. One indexed read (idx_thumbs_plugin), returned by
+ *  BOTH thumbs routes.
+ *
+ *  Why every thumbs response carries them: `/stats` is served
+ *  `Cache-Control: max-age=300` and the renderer's own refresh() only bypasses
+ *  its in-memory cache, so /stats cannot answer "what is the count right now".
+ *  On the WRITE that meant the number would not move for five minutes after a
+ *  successful vote. On the READ it was worse — the detail page loaded the
+ *  caller's vote from here and the count from the stale /stats snapshot, so
+ *  reopening a plugin you had just voted on showed a LIT THUMB next to
+ *  "No votes yet". A page that contradicts itself is worse than one that lags. */
+async function voteTotals(c: Context<HonoEnv>, pluginId: string): Promise<{ thumbs_up: number; thumbs_down: number }> {
+  const row = await c.env.DB
+    .prepare(
+      `SELECT SUM(CASE WHEN vote = 1 THEN 1 ELSE 0 END) AS up,
+              SUM(CASE WHEN vote = -1 THEN 1 ELSE 0 END) AS down
+       FROM thumbs WHERE plugin_id = ?`
+    )
+    .bind(pluginId)
+    .first<{ up: number | null; down: number | null }>();
+  // SUM over zero rows is NULL, not 0.
+  return { thumbs_up: row?.up ?? 0, thumbs_down: row?.down ?? 0 };
+}
+
+
 // POST /thumbs { plugin_id, value: "up" | "down" | null }
 //   → { ok, vote, thumbs_up, thumbs_down }
 // One vote per (user, plugin); null clears it. Install-gated like ratings.
@@ -59,26 +84,11 @@ feedbackRoutes.post("/thumbs", requireAuth, async (c) => {
       .run();
   }
 
-  // Hand the fresh totals back with the write. One indexed read (idx_thumbs_plugin),
-  // and it is the difference between the number moving when you click and the app
-  // re-fetching /stats to find out — which it cannot usefully do, because /stats is
-  // served Cache-Control: max-age=300 while the renderer's refresh() only bypasses
-  // its OWN in-memory cache. Without this the count would sit unchanged for up to
-  // five minutes after a successful vote, which reads as "it didn't save".
-  const totals = await c.env.DB
-    .prepare(
-      `SELECT SUM(CASE WHEN vote = 1 THEN 1 ELSE 0 END) AS up,
-              SUM(CASE WHEN vote = -1 THEN 1 ELSE 0 END) AS down
-       FROM thumbs WHERE plugin_id = ?`
-    )
-    .bind(pluginId)
-    .first<{ up: number | null; down: number | null }>();
+  const totals = await voteTotals(c, pluginId);
   return c.json({
     ok: true,
     vote: vote === null ? null : vote === 1 ? "up" : "down",
-    // SUM over zero rows is NULL, not 0.
-    thumbs_up: totals?.up ?? 0,
-    thumbs_down: totals?.down ?? 0,
+    ...totals,
   });
 });
 
@@ -157,11 +167,13 @@ async function myVote(c: Context<HonoEnv>, pluginId: string) {
   if (!(await checkRateLimit(`thumbs-get:${c.get("userId")}`, 120, 60))) {
     throw tooMany("too many requests");
   }
+  const id = validateId(pluginId);
   const row = await c.env.DB
     .prepare("SELECT vote FROM thumbs WHERE user_id = ? AND plugin_id = ?")
-    .bind(c.get("userId"), validateId(pluginId))
+    .bind(c.get("userId"), id)
     .first<{ vote: number }>();
-  return c.json({ vote: row ? (row.vote === 1 ? "up" : "down") : null });
+  // Totals ride along so the page never shows a lit thumb beside "No votes yet".
+  return c.json({ vote: row ? (row.vote === 1 ? "up" : "down") : null, ...(await voteTotals(c, id)) });
 }
 feedbackRoutes.get("/thumbs/:bundle/:name", requireAuth, (c) => myVote(c, `${c.req.param("bundle")}/${c.req.param("name")}`));
 feedbackRoutes.get("/thumbs/:plugin_id", requireAuth, (c) => myVote(c, c.req.param("plugin_id")));

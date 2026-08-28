@@ -35,6 +35,33 @@ point of this tool is to avoid reading them.
 of `find` results one by one.** If `find` returns ten plausible rows, narrow the
 query instead of opening all ten.
 
+## Naming past conversations to the user
+
+In YouCoded, `find` and `show` output render as cards with Preview and Resume
+buttons, so the user can open whatever you are talking about.
+
+When you name specific past conversations **in your own message**, write them as
+a fenced block instead of listing them in prose — YouCoded turns it into the
+same card, wherever in the message you put it:
+
+    The permission work is mostly settled; both of these cover it:
+
+    ```conversations
+    a3f2
+    9c14
+    ```
+
+    The newsletter is a separate thread:
+
+    ```conversations
+    7a21
+    ```
+
+One short id per line, exactly as `find` printed them. Put the block right after
+the sentence it belongs to — several small blocks through a message read far
+better than one long list at the end. Outside YouCoded it degrades to a short
+code block listing the ids, so it is safe to write anywhere.
+
 ## How to run it
 
 ```bash

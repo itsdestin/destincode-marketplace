@@ -7,6 +7,7 @@
 // and easy to forget to app.route() — the failure is silent: tests green, routes
 // 404 in production.
 import { Hono } from "hono";
+import type { Context } from "hono";
 import type { HonoEnv } from "../types";
 import { requireAuth } from "../auth/middleware";
 import { badRequest, forbidden, tooMany } from "../lib/errors";
@@ -14,7 +15,9 @@ import { validateId } from "../lib/validate";
 import { parseJsonBody } from "../lib/parse-json";
 import { checkRateLimit } from "../lib/rate-limit";
 import { hasInstall } from "../db";
-import { parseVote } from "./validate";
+import { classifyReview } from "../ratings/moderation";
+import { randomToken } from "../lib/crypto";
+import { parseVote, validateCommentText } from "./validate";
 
 export const feedbackRoutes = new Hono<HonoEnv>();
 
@@ -77,3 +80,69 @@ feedbackRoutes.post("/thumbs", requireAuth, async (c) => {
     thumbs_down: totals?.down ?? 0,
   });
 });
+
+// POST /comments { plugin_id, text } → { ok, id, hidden }
+// Sign-in only — no install gate: asking "does this work offline?" BEFORE
+// installing is the point. Same classifier as reviews; flagged text is stored
+// hidden so the admin queue (GET /admin/comments) can look at it.
+feedbackRoutes.post("/comments", requireAuth, async (c) => {
+  const userId = c.get("userId");
+  if (!(await checkRateLimit(`comments:${userId}`, 20, 3600))) {
+    throw tooMany("too many comments per hour");
+  }
+  const body = await parseJsonBody<{ plugin_id?: string; text?: unknown }>(c);
+  const pluginId = validateId(body.plugin_id);
+  let text: string;
+  try { text = validateCommentText(body.text); }
+  catch (e) { throw badRequest((e as Error).message); }
+
+  const verdict = await classifyReview(c.env.AI, text);
+  const hidden = verdict.safe ? 0 : 1;
+  const id = randomToken(16);
+  await c.env.DB
+    .prepare("INSERT INTO comments (id, user_id, plugin_id, text, created_at, hidden) VALUES (?, ?, ?, ?, ?, ?)")
+    .bind(id, userId, pluginId, text, Math.floor(Date.now() / 1000), hidden)
+    .run();
+  return c.json({ ok: true, id, hidden: hidden === 1 });
+});
+
+// GET /comments/<id> → { comments } — public, newest first, LIMIT 50, hidden
+// excluded. Wire names match GET /ratings (user_login / user_avatar_url) because
+// the app's CommentList already reads them.
+//
+// TWO routes, one handler: a bundle member's id is `<bundle>/<name>` (spec §1.4),
+// and Hono's `:param` never matches across a slash — a single-segment route would
+// 404 every member page's comment thread. The two patterns have different segment
+// counts, so they can never both match one URL and registration order is
+// irrelevant.
+async function listComments(c: Context<HonoEnv>, pluginId: string) {
+  const ip = c.req.raw.headers.get("CF-Connecting-IP") ?? "unknown";
+  if (!(await checkRateLimit(`comments-list:${ip}`, 60, 60))) {
+    throw tooMany("too many requests");
+  }
+  const { results } = await c.env.DB
+    .prepare(
+      `SELECT m.id, m.user_id, u.display_name, u.avatar_url, m.text, m.created_at
+       FROM comments m
+       JOIN users u ON u.id = m.user_id
+       WHERE m.plugin_id = ? AND m.hidden = 0
+       ORDER BY m.created_at DESC
+       LIMIT 50`
+    )
+    .bind(pluginId)
+    .all<{ id: string; user_id: string; display_name: string; avatar_url: string | null; text: string; created_at: number }>();
+  const comments = results.map((row) => ({
+    id: row.id,
+    user_id: row.user_id,
+    user_login: row.display_name,
+    user_avatar_url: row.avatar_url,
+    text: row.text,
+    created_at: row.created_at,
+  }));
+  return c.json({ comments });
+}
+
+feedbackRoutes.get("/comments/:bundle/:name", (c) =>
+  listComments(c, validateId(`${c.req.param("bundle")}/${c.req.param("name")}`))
+);
+feedbackRoutes.get("/comments/:plugin_id", (c) => listComments(c, validateId(c.req.param("plugin_id"))));

@@ -61,12 +61,20 @@ const strictCors = cors({
 });
 
 // Path matcher for public-read endpoints. Tight: GET /stats exact, GET
-// /ratings/<single-segment plugin_id>. Anything else falls through to strict.
+// /ratings/<single-segment plugin_id>, GET /comments/<plugin_id> (one or two
+// segments). Anything else falls through to strict.
 function isPublicReadPath(path: string): boolean {
   if (path === "/stats") return true;
   if (path.startsWith("/ratings/")) {
     const rest = path.slice("/ratings/".length);
     return rest.length > 0 && !rest.includes("/");
+  }
+  // /comments/<plugin_id> OR /comments/<bundle>/<member> — a bundle member's id
+  // carries a slash (spec §1.4). Two segments max; Android's WebView sends
+  // `Origin: null`, so a miss here is a CORS block, not just a 404.
+  if (path.startsWith("/comments/")) {
+    const parts = path.slice("/comments/".length).split("/");
+    return parts.length <= 2 && parts.every((p) => p.length > 0);
   }
   return false;
 }

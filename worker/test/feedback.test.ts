@@ -84,3 +84,76 @@ describe("POST /thumbs", () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe("POST /comments + GET /comments/:plugin_id", () => {
+  beforeEach(async () => {
+    for (const t of TABLES) await env.DB.prepare(`DELETE FROM ${t}`).run();
+  });
+
+  it("401s without a token", async () => {
+    const res = await post("/comments", null, { plugin_id: "foo:bar", text: "hi" });
+    expect(res.status).toBe(401);
+  });
+
+  it("does NOT require an install (questions before installing are the point)", async () => {
+    const { token } = await seed();
+    const res = await post("/comments", token, { plugin_id: "foo:bar", text: "Does this work offline?" });
+    expect(res.status).toBe(200);
+    const body = await res.json<{ ok: boolean; id: string; hidden: boolean }>();
+    expect(body.ok).toBe(true);
+    expect(body.hidden).toBe(false);
+    expect(body.id).toMatch(/^[0-9a-f]{32}$/);
+  });
+
+  it("400s on empty text, link spam and overlong text", async () => {
+    const { token } = await seed();
+    expect((await post("/comments", token, { plugin_id: "foo:bar", text: "   " })).status).toBe(400);
+    const r = await post("/comments", token, { plugin_id: "foo:bar", text: "a https://a.x b https://b.x c https://c.x" });
+    expect(r.status).toBe(400);
+    expect(await r.text()).toBe("too many links (at most 2)");
+    expect((await post("/comments", token, { plugin_id: "foo:bar", text: "z".repeat(2001) })).status).toBe(400);
+  });
+
+  // NOTE: there is deliberately no "classifier flags it" route test. `[env.test]`
+  // omits the AI binding and it cannot be stubbed (test/setup.ts explains, with
+  // the probe result) — `classifyReview` always fail-opens here, so the route's
+  // hidden=1 branch is unreachable under vitest. The verdict logic is covered
+  // directly in `moderation.test.ts`; the reader-facing half — a hidden
+  // row is never listed — is covered by the next test.
+
+  it("lists visible comments newest first with the author's login and avatar", async () => {
+    const { token, account } = await seed("alice");
+    await post("/comments", token, { plugin_id: "foo:bar", text: "first" });
+    // Force an earlier created_at on the first row so ordering is deterministic.
+    await env.DB.prepare("UPDATE comments SET created_at = created_at - 100").run();
+    await post("/comments", token, { plugin_id: "foo:bar", text: "second" });
+    // A hidden row must never be listed.
+    await env.DB.prepare(
+      "INSERT INTO comments (id, user_id, plugin_id, text, created_at, hidden) VALUES ('h1', ?, 'foo:bar', 'nope', 9999999999, 1)"
+    ).bind(account.userId).run();
+
+    const res = await SELF.fetch("https://test.local/comments/foo%3Abar");
+    expect(res.status).toBe(200);
+    const { comments } = await res.json<{ comments: Array<{ id: string; user_id: string; user_login: string; user_avatar_url: string | null; text: string; created_at: number }> }>();
+    expect(comments.map((c) => c.text)).toEqual(["second", "first"]);
+    expect(comments[0]!.user_id).toBe(account.userId);
+    expect(comments[0]!.user_login).toBe("alice");
+    expect(typeof comments[0]!.created_at).toBe("number");
+  });
+
+  it("returns an empty list for an unknown plugin", async () => {
+    const res = await SELF.fetch("https://test.local/comments/nothing-here");
+    expect(await res.json()).toEqual({ comments: [] });
+  });
+
+  it("reads a bundle MEMBER's thread — the id has a slash", async () => {
+    const { token } = await seed("bob");
+    const memberId = "superpowers/brainstorming";
+    expect((await post("/comments", token, { plugin_id: memberId, text: "does this need a key?" })).status).toBe(200);
+    // Unencoded: this is how the renderer builds the URL for a member page.
+    const res = await SELF.fetch("https://test.local/comments/superpowers/brainstorming");
+    expect(res.status).toBe(200);
+    const { comments } = await res.json<{ comments: Array<{ text: string }> }>();
+    expect(comments.map((c) => c.text)).toEqual(["does this need a key?"]);
+  });
+});

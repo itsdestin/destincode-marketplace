@@ -157,3 +157,35 @@ describe("POST /comments + GET /comments/:plugin_id", () => {
     expect(comments.map((c) => c.text)).toEqual(["does this need a key?"]);
   });
 });
+
+describe("GET /thumbs/:plugin_id", () => {
+  beforeEach(async () => {
+    for (const t of TABLES) await env.DB.prepare(`DELETE FROM ${t}`).run();
+  });
+
+  it("401s without a token", async () => {
+    expect((await SELF.fetch("https://test.local/thumbs/foo:bar")).status).toBe(401);
+  });
+
+  it("returns null before voting, then the vote, for plugin and member ids", async () => {
+    const { token, account } = await seed();
+    const get = (id: string) => SELF.fetch(`https://test.local/thumbs/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+    expect(await (await get("foo:bar")).json()).toEqual({ vote: null });
+    await seedInstall(account.userId, "foo:bar");
+    await post("/thumbs", token, { plugin_id: "foo:bar", value: "down" });
+    expect(await (await get("foo:bar")).json()).toEqual({ vote: "down" });
+
+    await seedInstall(account.userId, "superpowers/brainstorming");
+    await post("/thumbs", token, { plugin_id: "superpowers/brainstorming", value: "up" });
+    expect(await (await get("superpowers/brainstorming")).json()).toEqual({ vote: "up" });
+  });
+
+  it("is per-caller: another signed-in user sees their own vote, not yours", async () => {
+    const a = await seed("ta");
+    const b = await seed("tb");
+    await seedInstall(a.account.userId, "foo:bar");
+    await post("/thumbs", a.token, { plugin_id: "foo:bar", value: "up" });
+    const res = await SELF.fetch("https://test.local/thumbs/foo:bar", { headers: { Authorization: `Bearer ${b.token}` } });
+    expect(await res.json()).toEqual({ vote: null });
+  });
+});

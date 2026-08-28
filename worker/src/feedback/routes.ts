@@ -146,3 +146,21 @@ feedbackRoutes.get("/comments/:bundle/:name", (c) =>
   listComments(c, validateId(`${c.req.param("bundle")}/${c.req.param("name")}`))
 );
 feedbackRoutes.get("/comments/:plugin_id", (c) => listComments(c, validateId(c.req.param("plugin_id"))));
+
+// GET /thumbs/<id> → { vote } — the CALLER's own vote, so the buttons can show
+// what you already chose instead of resetting every time the page opens.
+// Without it: vote, leave, come back, neither thumb is lit, and you vote again.
+// Authed and per-user, therefore deliberately NOT in isPublicReadPath.
+async function myVote(c: Context<HonoEnv>, pluginId: string) {
+  // Same per-user brake as its neighbours — every other route here has one.
+  if (!(await checkRateLimit(`thumbs-get:${c.get("userId")}`, 120, 60))) {
+    throw tooMany("too many requests");
+  }
+  const row = await c.env.DB
+    .prepare("SELECT vote FROM thumbs WHERE user_id = ? AND plugin_id = ?")
+    .bind(c.get("userId"), validateId(pluginId))
+    .first<{ vote: number }>();
+  return c.json({ vote: row ? (row.vote === 1 ? "up" : "down") : null });
+}
+feedbackRoutes.get("/thumbs/:bundle/:name", requireAuth, (c) => myVote(c, `${c.req.param("bundle")}/${c.req.param("name")}`));
+feedbackRoutes.get("/thumbs/:plugin_id", requireAuth, (c) => myVote(c, c.req.param("plugin_id")));

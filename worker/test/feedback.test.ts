@@ -174,17 +174,42 @@ describe("GET /thumbs/:plugin_id", () => {
     expect((await SELF.fetch("https://test.local/thumbs/foo:bar")).status).toBe(401);
   });
 
+  it("returns the plugin's TOTALS alongside the vote", async () => {
+    // Without this the detail page contradicts itself on reopen: the thumb
+    // lights up (loaded from here) while the count still comes from the /stats
+    // snapshot taken at app start — which predates the vote — so it reads
+    // "No votes yet" next to a lit thumb. /stats is Cache-Control max-age=300
+    // and cannot be refreshed usefully, so the totals have to ride this read.
+    const { token, account } = await seed();
+    await seedInstall(account.userId, "foo:bar");
+    const other = await seed("second-voter");
+    await seedInstall(other.account.userId, "foo:bar");
+    await post("/thumbs", token, { plugin_id: "foo:bar", value: "up" });
+    await post("/thumbs", other.token, { plugin_id: "foo:bar", value: "down" });
+
+    const res = await SELF.fetch("https://test.local/thumbs/foo:bar", { headers: { Authorization: `Bearer ${token}` } });
+    // Totals are the PLUGIN's, not the caller's: two people voted.
+    expect(await res.json()).toEqual({ vote: "up", thumbs_up: 1, thumbs_down: 1 });
+  });
+
+  it("reports zero totals for a plugin nobody has voted on", async () => {
+    const { token } = await seed();
+    const res = await SELF.fetch("https://test.local/thumbs/never-voted", { headers: { Authorization: `Bearer ${token}` } });
+    // SUM over no rows is NULL — must normalize, or the UI renders undefined.
+    expect(await res.json()).toEqual({ vote: null, thumbs_up: 0, thumbs_down: 0 });
+  });
+
   it("returns null before voting, then the vote, for plugin and member ids", async () => {
     const { token, account } = await seed();
     const get = (id: string) => SELF.fetch(`https://test.local/thumbs/${id}`, { headers: { Authorization: `Bearer ${token}` } });
-    expect(await (await get("foo:bar")).json()).toEqual({ vote: null });
+    expect(await (await get("foo:bar")).json()).toMatchObject({ vote: null });
     await seedInstall(account.userId, "foo:bar");
     await post("/thumbs", token, { plugin_id: "foo:bar", value: "down" });
-    expect(await (await get("foo:bar")).json()).toEqual({ vote: "down" });
+    expect(await (await get("foo:bar")).json()).toMatchObject({ vote: "down" });
 
     await seedInstall(account.userId, "superpowers/brainstorming");
     await post("/thumbs", token, { plugin_id: "superpowers/brainstorming", value: "up" });
-    expect(await (await get("superpowers/brainstorming")).json()).toEqual({ vote: "up" });
+    expect(await (await get("superpowers/brainstorming")).json()).toMatchObject({ vote: "up" });
   });
 
   it("is per-caller: another signed-in user sees their own vote, not yours", async () => {
@@ -193,7 +218,8 @@ describe("GET /thumbs/:plugin_id", () => {
     await seedInstall(a.account.userId, "foo:bar");
     await post("/thumbs", a.token, { plugin_id: "foo:bar", value: "up" });
     const res = await SELF.fetch("https://test.local/thumbs/foo:bar", { headers: { Authorization: `Bearer ${b.token}` } });
-    expect(await res.json()).toEqual({ vote: null });
+    // Their own vote is null, but they still see the plugin's real totals.
+    expect(await res.json()).toEqual({ vote: null, thumbs_up: 1, thumbs_down: 0 });
   });
 });
 

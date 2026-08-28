@@ -341,7 +341,12 @@ async function main() {
     // must be listed under the SAME version the app reads from plugin.json —
     // the app's "Update available" badge compares the two. Plugins without a
     // manifest version keep the synthetic bump-on-metadata-change below.
-    if (!isPrompt && entry.sourceType === "local") {
+    // WHY: entry.sourceRef is undefined for a malformed source (e.g. a
+    // community entry shaped {"source": "local"} with no "path" — parseSource
+    // returns src.path unchecked). path.join(..., undefined) throws, and that
+    // throw would sit outside the manifest read's try/catch below and kill the
+    // whole rebuild over one bad entry. Skip manifest-version lookup instead.
+    if (!isPrompt && entry.sourceType === "local" && typeof entry.sourceRef === "string" && entry.sourceRef) {
       const pluginDir = path.join(__dirname, "..", entry.sourceRef);
       for (const rel of ["plugin.json", ".claude-plugin/plugin.json"]) {
         try {

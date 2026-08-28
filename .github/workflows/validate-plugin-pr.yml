@@ -293,7 +293,10 @@ jobs:
           FAIL=0
           for d in youcoded-chatsearch wecoded-themes-plugin wecoded-marketplace-publisher; do
             if git diff --quiet "$BASE" HEAD -- "$d/"; then continue; fi
-            OLD=$(git show "$BASE:$d/plugin.json" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version",""))' || echo "")
+            # WHY: when the plugin didn't exist at BASE, `git show` prints nothing and the
+            # python3 parse of empty stdin throws — silence that expected-empty case so a
+            # passing run's log doesn't show a traceback; `|| echo ""` still yields "".
+            OLD=$(git show "$BASE:$d/plugin.json" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version",""))' 2>/dev/null || echo "")
             NEW=$(python3 -c 'import json; print(json.load(open("'"$d"'/plugin.json")).get("version",""))')
             if [ "$OLD" = "$NEW" ]; then
               echo "::error file=$d/plugin.json::$d changed but its version is still '$NEW' — bump it so installed copies upgrade"

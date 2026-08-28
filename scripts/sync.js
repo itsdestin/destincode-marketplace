@@ -337,6 +337,20 @@ async function main() {
     const isPrompt = upstream.type === "prompt";
     const entry = mapEntry(upstream, "youcoded", localMarketplace.owner?.name || "YouCoded", isPrompt);
 
+    // WHY: bundled plugins (and any in-repo plugin with a plugin.json version)
+    // must be listed under the SAME version the app reads from plugin.json —
+    // the app's "Update available" badge compares the two. Plugins without a
+    // manifest version keep the synthetic bump-on-metadata-change below.
+    if (!isPrompt && entry.sourceType === "local") {
+      const pluginDir = path.join(__dirname, "..", entry.sourceRef);
+      for (const rel of ["plugin.json", ".claude-plugin/plugin.json"]) {
+        try {
+          const v = JSON.parse(fs.readFileSync(path.join(pluginDir, rel), "utf8")).version;
+          if (typeof v === "string" && v) { entry.version = v; entry.manifestVersion = true; break; }
+        } catch { /* no manifest here — try the next layout */ }
+      }
+    }
+
     // For local-source plugins, compute content hash if flag is set
     if (computeLocalHash && !isPrompt && entry.sourceType === "local") {
       const pluginDir = path.join(__dirname, "..", entry.sourceRef);
@@ -418,9 +432,23 @@ async function main() {
 
   // Process new/updated entries — carry forward version and publishedAt when unchanged
   const finalEntries = [];
+  // Hoisted so both the manifest-pinned branch and the synthetic-bump branch
+  // below stamp the same instant.
+  const today = new Date().toISOString().split("T")[0] + "T00:00:00Z";
 
   for (const entry of allNew) {
     const prev = previousById.get(entry.id);
+    if (entry.manifestVersion) {
+      // WHY: manifestVersion means mapEntry already pinned entry.version to
+      // plugin.json — never let the synthetic bump-on-metadata-change below
+      // overwrite it. publishedAt still moves when the manifest version
+      // actually changes, so "last updated" stays meaningful.
+      delete entry.manifestVersion;
+      if (prev && prev.version !== entry.version) { entry.publishedAt = today; updated++; }
+      else if (prev) { entry.publishedAt = prev.publishedAt; if (prev.deprecated) { entry.deprecated = prev.deprecated; entry.deprecatedAt = prev.deprecatedAt; } unchanged++; }
+      else added++;
+      finalEntries.push(entry); continue;
+    }
     if (!prev) {
       // New entry — use defaults (1.0.0, today)
       added++;
@@ -428,7 +456,7 @@ async function main() {
     } else if (hasChanges(prev, entry)) {
       // Changed — bump version, update publishedAt
       entry.version = bumpPatch(prev.version);
-      entry.publishedAt = new Date().toISOString().split("T")[0] + "T00:00:00Z";
+      entry.publishedAt = today;
       updated++;
       finalEntries.push(entry);
     } else {

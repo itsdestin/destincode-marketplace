@@ -146,15 +146,22 @@ describe("POST /comments + GET /comments/:plugin_id", () => {
     expect(await res.json()).toEqual({ comments: [] });
   });
 
-  it("reads a bundle MEMBER's thread — the id has a slash", async () => {
+  it("reads a bundle MEMBER's thread — both the raw slash and a percent-encoded one", async () => {
     const { token } = await seed("bob");
     const memberId = "superpowers/brainstorming";
     expect((await post("/comments", token, { plugin_id: memberId, text: "does this need a key?" })).status).toBe(200);
-    // Unencoded: this is how the renderer builds the URL for a member page.
-    const res = await SELF.fetch("https://test.local/comments/superpowers/brainstorming");
-    expect(res.status).toBe(200);
-    const { comments } = await res.json<{ comments: Array<{ text: string }> }>();
-    expect(comments.map((c) => c.text)).toEqual(["does this need a key?"]);
+
+    // Assert the CONTENT, never just the status: an empty list is also what a
+    // wrong id returns, so a 200 alone would pass with the route broken.
+    for (const path of [
+      "/comments/superpowers/brainstorming",                        // raw slash (two-segment route)
+      `/comments/${encodeURIComponent(memberId)}`,                  // %2F (single-segment route, decoded by Hono)
+    ]) {
+      const res = await SELF.fetch(`https://test.local${path}`);
+      expect(res.status).toBe(200);
+      const { comments } = await res.json<{ comments: Array<{ text: string }> }>();
+      expect(comments.map((c) => c.text), `path: ${path}`).toEqual(["does this need a key?"]);
+    }
   });
 });
 

@@ -56,11 +56,12 @@ CATALOG_ENABLED = "1"
 #     npx wrangler kv namespace create CATALOG --preview
 # and paste the two ids it prints below. Tests are unaffected either way —
 # vitest-pool-workers/miniflare provisions a local KV by BINDING NAME and never
-# looks at the id.
+# looks at the id. (Namespaces created 2026-08-31 against Destinj101@gmail.com's
+# account; `wrangler kv namespace list` is the source of truth if these ever drift.)
 [[kv_namespaces]]
 binding = "CATALOG_KV"
-id = "REPLACE_ME_CATALOG_KV_ID"
-preview_id = "REPLACE_ME_CATALOG_KV_PREVIEW_ID"
+id = "a635a913ae8448bba50d63372afb13a1"
+preview_id = "82814d7e798b4764b973d3775555ac19"
 
 [env.test]
 # Test environment inherits config but omits AI binding — vitest-pool-workers /
@@ -84,8 +85,8 @@ bindings = [
 # without it env.CATALOG_KV is undefined in tests and only the D1 fallback runs.
 [[env.test.kv_namespaces]]
 binding = "CATALOG_KV"
-id = "REPLACE_ME_CATALOG_KV_ID"
-preview_id = "REPLACE_ME_CATALOG_KV_PREVIEW_ID"
+id = "a635a913ae8448bba50d63372afb13a1"
+preview_id = "82814d7e798b4764b973d3775555ac19"
 
 [env.test.vars]
 GH_CLIENT_ID = "test"

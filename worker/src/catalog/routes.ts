@@ -72,6 +72,28 @@ function mergeOntoStored(incoming: IngestEntry, storedJson: string | null, nowIs
     merged.scan = b.scan;                                    // keep the real verdict AND its age
   }
   if (!a.capabilities?.length && b.capabilities?.length) merged.capabilities = b.capabilities;
+  // A RE-SCAN THAT FOUND NOTHING NEW IS NOT A CHANGE — keep the stored `checkedAt`.
+  //
+  // The ingest cannot skip a plugin it has no upstream commit for: our own `local`
+  // plugins have no GitHub HEAD to compare against, so their files are re-read every
+  // hour and stamped with the time they were read. That timestamp alone made ~71 rows
+  // differ hourly (measured on the 2026-08-30 dry run), which rewrote them, bumped the
+  // catalog version and moved the ETag — and a moving ETag makes EVERY client on EVERY
+  // device re-download the whole multi-megabyte catalog once an hour, Android over
+  // mobile data. That is precisely the cost the ETag exists to prevent, so a verdict
+  // that did not actually move must not look like one because we looked again.
+  //
+  // Deliberately narrow: only the timestamp is ignored, and only when the status, the
+  // findings AND the rule version are all identical. A real re-verdict, or a bumped
+  // SCAN_RULES_VERSION (which must re-scan the world), still writes and carries its
+  // new age.
+  if (a.scan && b.scan && merged.scan === a.scan
+      && a.scan.status === b.scan.status
+      && (a.scan.rules ?? "") === (b.scan.rules ?? "")
+      && JSON.stringify(a.scan.findings ?? []) === JSON.stringify(b.scan.findings ?? [])
+      && b.scan.checkedAt !== undefined) {
+    merged.scan = { ...a.scan, checkedAt: b.scan.checkedAt };
+  }
   const out: IngestEntry = { ...stored, ...incoming, catalog: merged };
   if (!incoming.publishedAt && stored.publishedAt) out.publishedAt = stored.publishedAt;
   return out;

@@ -258,3 +258,64 @@ describe("GET /catalog", () => {
     expect((await SELF.fetch("https://test.local/catalog/none")).status).toBe(404);
   });
 });
+
+describe("a re-scan that found nothing new is not a change", () => {
+  beforeEach(async () => {
+    for (const t of ["catalog_items", "catalog_runs"]) await env.DB.prepare(`DELETE FROM ${t}`).run();
+  });
+
+  // WHY THIS EXISTS. The ingest cannot skip a plugin it has no upstream commit for — our
+  // own `local` plugins have no GitHub HEAD to compare — so it re-reads their files every
+  // hour and stamps `scan.checkedAt` with the time it read them. That timestamp alone made
+  // ~71 rows differ every single hour: they were rewritten, the catalog version was bumped,
+  // and the ETag moved. A moving ETag means EVERY client on EVERY device re-downloads the
+  // whole multi-megabyte catalog once an hour — Android over mobile data — which is the
+  // exact cost the ETag exists to prevent. A verdict that did not change must not look like
+  // a change just because we looked at it again.
+  it("a fresh checkedAt with an identical verdict writes nothing and holds the ETag", async () => {
+    const scanned = (checkedAt: string) => entry("ours", { catalog: {
+      itemType: "plugin", origin: { tier: "youcoded" }, capabilities: [],
+      scan: { status: "checked", checkedAt, rules: "1" },
+    } });
+    await post("/admin/catalog/upsert", { source: "wecoded", run_id: "r1", entries: [scanned("2026-08-30T00:00:00Z")] });
+    const before = await version();
+    const etagBefore = (await SELF.fetch("https://test.local/catalog")).headers.get("etag");
+
+    // The next hour: same files, same verdict, later clock.
+    const res = await post("/admin/catalog/upsert", { source: "wecoded", run_id: "r2", entries: [scanned("2026-08-30T01:00:00Z")] });
+    expect(await res.json()).toEqual({ ok: true, upserted: 0, unchanged: 1 });
+    expect(await version()).toBe(before);
+    expect((await SELF.fetch("https://test.local/catalog")).headers.get("etag")).toBe(etagBefore);
+    // The stored age is the one from when the verdict was actually established.
+    expect((await stored("ours")).catalog.scan.checkedAt).toBe("2026-08-30T00:00:00Z");
+  });
+
+  it("but a verdict that really moved still writes, and carries its new age", async () => {
+    await post("/admin/catalog/upsert", { source: "wecoded", run_id: "r1", entries: [entry("moved", { catalog: {
+      itemType: "plugin", origin: { tier: "youcoded" }, capabilities: [],
+      scan: { status: "checked", checkedAt: "2026-08-30T00:00:00Z", rules: "1" } } })] });
+    const before = await version();
+    const res = await post("/admin/catalog/upsert", { source: "wecoded", run_id: "r2", entries: [entry("moved", { catalog: {
+      itemType: "plugin", origin: { tier: "youcoded" }, capabilities: [],
+      scan: { status: "caution", checkedAt: "2026-08-30T01:00:00Z", findings: ["Downloads and runs code from the internet (install.sh)"], rules: "1" } } })] });
+    expect(await res.json()).toEqual({ ok: true, upserted: 1, unchanged: 0 });
+    expect(await version()).toBeGreaterThan(before);
+    const cat = (await stored("moved")).catalog;
+    expect(cat.scan.status).toBe("caution");
+    expect(cat.scan.checkedAt).toBe("2026-08-30T01:00:00Z");
+  });
+
+  // A rule-set bump must re-scan the world — that is the whole point of `rules` being
+  // half the ingest's skip key. It must NOT be swallowed as "same verdict".
+  it("a new scan-rules version is a real change even with the same status", async () => {
+    await post("/admin/catalog/upsert", { source: "wecoded", run_id: "r1", entries: [entry("rules", { catalog: {
+      itemType: "plugin", origin: { tier: "youcoded" }, capabilities: [],
+      scan: { status: "checked", checkedAt: "2026-08-30T00:00:00Z", rules: "1" } } })] });
+    const before = await version();
+    const res = await post("/admin/catalog/upsert", { source: "wecoded", run_id: "r2", entries: [entry("rules", { catalog: {
+      itemType: "plugin", origin: { tier: "youcoded" }, capabilities: [],
+      scan: { status: "checked", checkedAt: "2026-08-30T01:00:00Z", rules: "2" } } })] });
+    expect(await res.json()).toEqual({ ok: true, upserted: 1, unchanged: 0 });
+    expect(await version()).toBeGreaterThan(before);
+  });
+});

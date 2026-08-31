@@ -80,6 +80,18 @@ only ever exercised in production, which is exactly why the admin routes above e
 Thumbs (`POST /thumbs`) carry no text and are not classified; they are install-gated instead
 (one vote per account per plugin, `value: null` clears it).
 
+### Catalog
+
+- `GET /admin/catalog/health` — is the catalog still being fed? Reports the catalog version
+  and, per source, how many listings are live, when its last ingest run finished, and what
+  that run retired. Same admin GitHub identity as the takedown routes above. A stalled ingest
+  raises no error anywhere — the rows simply stop changing — so a `lastFinishedAt` that is
+  hours old is the only tell. (GitHub also disables a repo's `schedule:` triggers after 60
+  days of no activity.)
+- `POST /admin/catalog/upsert` / `POST /admin/catalog/finish` / `GET /admin/catalog/shas` —
+  the hourly ingest job's own routes. Gated by the `CATALOG_INGEST_TOKEN` shared secret in the
+  `X-Catalog-Token` header, not by an admin session: the caller is a GitHub Action.
+
 ## D1 backups
 
 D1 auto-snapshots on paid plans; on free plan, export weekly:

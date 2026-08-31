@@ -42,6 +42,11 @@ export interface Env {
   // falls back to assembling the body out of D1 when the namespace is absent or
   // empty, so an unprovisioned binding degrades to slower, never to broken.
   CATALOG_KV?: KVNamespace;
+  // How long a lone head-to-head report waits for its partner, in ms (games
+  // §6.2). Set ONLY in [env.test.vars] so the attestation timeout is reachable
+  // inside a test run; production omits it and uses the in-code default
+  // (presence-room.ts RESULT_TIMEOUT_MS).
+  GAME_RESULT_TIMEOUT_MS?: string;
 }
 
 // NOTE: full-row interfaces (UserRow/IdentityRow/SessionRow/RatingRow) used to

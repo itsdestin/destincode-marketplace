@@ -6,10 +6,21 @@
 // the userId, so both survive DO hibernation. The friend cache is an in-memory
 // optimization only — it is reloaded from D1 on demand after a wake-up.
 //
-// PRIVACY INVARIANT (spec §5): the ONLY thing this class ever persists is
-// users.last_seen_at (one timestamp). No presence history, logs, or durations.
+// PRIVACY INVARIANT (spec §5): the only PRESENCE fact this class ever persists
+// is users.last_seen_at (one timestamp). No presence history, logs, or durations.
+// (Games §6.2 added two writes that are NOT presence: settled match rows in
+// game_matches, and a short-lived half-report slot in DO storage that is deleted
+// the moment the match settles or the attestation window closes.)
 import type { Env } from "../types";
 import { loadFriendIds, getUserCard, type UserCard } from "./graph";
+import {
+  isOutcome,
+  isValidMatchId,
+  isVersusGame,
+  reportsAgree,
+  type Outcome,
+} from "../games/registry";
+import { loadRecordVs, matchIsRecorded, recordMatch } from "../games/records";
 
 type Status = "idle" | "in-game";
 // connectedAt/lastActivityAt: liveness seeds — see livenessOf(). Optional so an
@@ -40,6 +51,40 @@ const LAST_SEEN_REFRESH_MS = 5 * 60 * 1000; // coarse refresh so a crashed clien
 // correct behavior, not a bug (see the archived investigation doc).
 const STALE_DEFAULT_MS = 10 * 60 * 1000;
 
+// ---------------------------------------------------------------------------
+// Head-to-head attestation (games spec §6.2/§6.3)
+// ---------------------------------------------------------------------------
+// WHY the result lands here and not on an HTTP route: this DO is the only place
+// in the system that holds BOTH players at once, authenticated, keyed by account
+// id. PartyKit referees the board but never learns who the players are — it tags
+// them by display name, and display names are not unique. So instead of trusting
+// the referee, we take one report from each player over their OWN authenticated
+// socket and record the match only when the two agree.
+//
+// A half-report waits in DO storage under this prefix until its partner arrives.
+const RESULT_PREFIX = "result:";
+
+// How long a lone report waits for its partner before it is thrown away.
+//
+// WHY two minutes: both clients learn the game ended from the SAME PartyKit
+// broadcast, so the honest gap between the two reports is one network round
+// trip. Two minutes is ~100x that — comfortably enough for a client that has to
+// re-establish its presence socket first (the desktop socket reconnects on a
+// few-seconds backoff) — while staying well under the 10-minute presence
+// staleness window, so a half-report can never outlive the session that made it.
+// Longer would buy nothing: the slot is keyed by (pair, game, match), so a
+// stale half-report can never be paired with a different match anyway.
+const RESULT_TIMEOUT_MS = 2 * 60 * 1000;
+
+/** One match awaiting attestation. `reports` maps an account id to what THAT
+ *  player says happened to THEM ("win" means that player won). */
+interface PendingResult {
+  game: string;
+  matchId: string;
+  reports: Record<string, Outcome>;
+  firstReportAt: number; // ms; the clock the RESULT_TIMEOUT_MS window runs on
+}
+
 export class PresenceRoom {
   private friendCache = new Map<string, Set<string>>();
 
@@ -59,6 +104,13 @@ export class PresenceRoom {
     // Env override exists for tests ([env.test.vars]); production omits it.
     const n = Number(this.env.PRESENCE_STALE_MS);
     return Number.isFinite(n) && n > 0 ? n : STALE_DEFAULT_MS;
+  }
+
+  /** Attestation window (games §6.2). Same override pattern as staleMs(): the
+   *  2-minute production default is unreachable inside a test run. */
+  private resultTimeoutMs(): number {
+    const n = Number(this.env.GAME_RESULT_TIMEOUT_MS);
+    return Number.isFinite(n) && n > 0 ? n : RESULT_TIMEOUT_MS;
   }
 
   /** Most recent proof-of-life for a socket: connect handshake, any real
@@ -185,6 +237,14 @@ export class PresenceRoom {
         for (const conn of this.socketsFor(to)) this.safeSend(conn, msg);
         break;
       }
+      // Games §6.2: "here is how MY side of that match ended."
+      case "game-result":
+        await this.handleGameResult(ws, att, data);
+        break;
+      // Games §6.3: "my opponent left and never came back."
+      case "game-forfeit":
+        await this.handleGameForfeit(ws, att, data);
+        break;
     }
   }
 
@@ -209,8 +269,11 @@ export class PresenceRoom {
   }
 
   async alarm(): Promise<void> {
-    // Two jobs on the same ~5-minute tick: refresh last_seen for live accounts
-    // (spec §3) and sweep ghost sockets (liveness model, top of file).
+    // Three jobs on the same ~5-minute tick: refresh last_seen for live accounts
+    // (spec §3), sweep ghost sockets (liveness model, top of file), and drop
+    // half-reports whose attestation window closed (games §6.2).
+    // A Durable Object has exactly ONE alarm, so anything periodic has to ride
+    // this one — do not add a second setAlarm() call anywhere in this class.
     const now = Date.now();
     const live = new Set<string>();
     // userId → newest proof-of-life (ms) among that account's stale sockets.
@@ -240,12 +303,210 @@ export class PresenceRoom {
       // client-side, so this stays unconditional and simple.
       await this.broadcastToFriends(userId, { type: "user-left", id: userId });
     }
+    const stillPending = await this.sweepPendingResults(now);
     if (live.size > 0) {
       const atSec = Math.floor(now / 1000);
       await this.writeLastSeen([...live].map((id) => ({ id, atSec })));
+    }
+    // Keep ticking while anyone is online OR a half-report is still waiting —
+    // otherwise a slot left behind by two players who both went offline would
+    // sit in storage until someone happened to reconnect. (It could never
+    // produce a wrong record — the read path expires it lazily too — this is
+    // storage hygiene.)
+    if (live.size > 0 || stillPending > 0) {
       await this.state.storage.setAlarm(now + LAST_SEEN_REFRESH_MS);
     }
-    // No live sockets → no reschedule; the next connect re-arms it.
+    // Nothing live and nothing pending → no reschedule; the next connect re-arms it.
+  }
+
+  // ---- head-to-head attestation (games §6.2/§6.3) ----
+
+  /** Storage key for one match's half-reports. Includes the canonically-ordered
+   *  pair so two different pairs that happen to pick the same room code can
+   *  never attest into each other's slot. */
+  private resultKey(a: string, b: string, game: string, matchId: string): string {
+    const [low, high] = a < b ? [a, b] : [b, a];
+    return `${RESULT_PREFIX}${low}:${high}:${game}:${matchId}`;
+  }
+
+  /** Common validation for both report shapes. Returns the cleaned fields, or
+   *  null after telling the caller exactly which part was wrong — a silently
+   *  dropped report would show up to the player as a record that just never
+   *  appears, with nothing to explain it. */
+  private async checkReport(
+    ws: WebSocket,
+    att: Attachment,
+    data: any
+  ): Promise<{ game: string; matchId: string; opponent: string } | null> {
+    const game = data.game;
+    const matchId = data.match_id;
+    const opponent = String(data.opponent ?? "");
+    const reject = (reason: string) => {
+      this.safeSend(
+        ws,
+        JSON.stringify({ type: "game-result-rejected", game, match_id: matchId, opponent, reason })
+      );
+      return null;
+    };
+    if (!isVersusGame(game)) return reject("unknown-game");
+    if (!isValidMatchId(matchId)) return reject("invalid-match-id");
+    if (!opponent || opponent === att.userId) return reject("invalid-opponent");
+    // Records exist only between friends — same rule as the challenge relay, and
+    // blocks always sever friendships so this covers blocks too.
+    if (!(await this.isFriend(att.userId, opponent))) return reject("not-friends");
+    return { game, matchId, opponent };
+  }
+
+  private rejectReport(ws: WebSocket, game: string, matchId: string, opponent: string, reason: string): void {
+    this.safeSend(
+      ws,
+      JSON.stringify({ type: "game-result-rejected", game, match_id: matchId, opponent, reason })
+    );
+  }
+
+  /**
+   * One player's account of how a match ended (§6.2).
+   *
+   * Records the match only when BOTH players have reported and the two reports
+   * describe the same match from opposite seats. Disagreement records nothing
+   * and is logged. A lone report waits RESULT_TIMEOUT_MS for its partner and is
+   * then dropped.
+   */
+  private async handleGameResult(ws: WebSocket, att: Attachment, data: any): Promise<void> {
+    const checked = await this.checkReport(ws, att, data);
+    if (!checked) return;
+    const { game, matchId, opponent } = checked;
+    const outcome = data.outcome;
+    if (!isOutcome(outcome)) return this.rejectReport(ws, game, matchId, opponent, "invalid-outcome");
+
+    // IDEMPOTENCY, part 1 — after settlement. The pending slot is deleted when a
+    // match is recorded, so without this check a client that retried its report
+    // (dropped socket, app restart) would open a FRESH slot for an already-
+    // settled match; if the opponent retried too, the pair would attest a second
+    // time. The D1 row's primary key would still refuse the duplicate insert,
+    // but the client would be told "pending" forever. Answer with the record it
+    // already earned instead.
+    if (await matchIsRecorded(this.env.DB, att.userId, opponent, game, matchId)) {
+      await this.announceRecord(att.userId, opponent, game, matchId, "already-recorded");
+      return;
+    }
+
+    const key = this.resultKey(att.userId, opponent, game, matchId);
+    const now = Date.now();
+    let pending = (await this.state.storage.get<PendingResult>(key)) ?? null;
+    // Expire lazily as well as on the alarm: the alarm only runs every ~5 min
+    // (and not at all once everyone is offline), so the read path must not trust
+    // a slot older than the window.
+    if (pending && now - pending.firstReportAt > this.resultTimeoutMs()) {
+      await this.state.storage.delete(key);
+      pending = null;
+    }
+
+    // IDEMPOTENCY, part 2 — before settlement. Reports are keyed by account id
+    // inside the slot, so a client resending its own report OVERWRITES its
+    // previous one. N retries from one player still count as one vote.
+    const reports: Record<string, Outcome> = { ...(pending?.reports ?? {}), [att.userId]: outcome };
+    const theirs = reports[opponent];
+    const firstReportAt = pending?.firstReportAt ?? now;
+
+    if (theirs === undefined) {
+      await this.state.storage.put(key, { game, matchId, reports, firstReportAt } satisfies PendingResult);
+      this.safeSend(ws, JSON.stringify({ type: "game-result-pending", game, match_id: matchId, opponent }));
+      return;
+    }
+
+    if (!reportsAgree(outcome, theirs)) {
+      // Record NOTHING, log it, tell both players (§6.2: a disagreement is worth
+      // logging, not a dispute to adjudicate). The slot is KEPT rather than
+      // deleted so a client that corrects itself inside the window can still
+      // settle honestly — keeping it cannot make a false record, because the
+      // agreement test runs again on every report.
+      await this.state.storage.put(key, { game, matchId, reports, firstReportAt } satisfies PendingResult);
+      console.warn(
+        `game-result disagreement: game=${game} match=${matchId} ${att.userId}=${outcome} ${opponent}=${theirs}`
+      );
+      const msg = JSON.stringify({ type: "game-result-disputed", game, match_id: matchId });
+      for (const sock of [...this.socketsFor(att.userId), ...this.socketsFor(opponent)]) this.safeSend(sock, msg);
+      return;
+    }
+
+    // Agreed. `outcome` is this reporter's own seat, so "win" means the reporter.
+    const winner = outcome === "draw" ? null : outcome === "win" ? att.userId : opponent;
+    await recordMatch(this.env.DB, {
+      a: att.userId,
+      b: opponent,
+      game,
+      matchId,
+      winner,
+      source: "attested",
+      atSec: Math.floor(now / 1000),
+    });
+    await this.state.storage.delete(key);
+    await this.announceRecord(att.userId, opponent, game, matchId, "attested");
+  }
+
+  /**
+   * The one case where a SINGLE report stands (§6.3): the opponent left and did
+   * not come back, so no second report can ever exist.
+   *
+   * The guard is that this room independently agrees the other player is gone —
+   * liveSocketsFor() is the same definition of "online" every other decision in
+   * this class uses, so the claim is checked against state the client cannot
+   * touch. If both players dropped, neither is here to claim anything and
+   * nothing is recorded, which is exactly what §6.3 asks for.
+   */
+  private async handleGameForfeit(ws: WebSocket, att: Attachment, data: any): Promise<void> {
+    const checked = await this.checkReport(ws, att, data);
+    if (!checked) return;
+    const { game, matchId, opponent } = checked;
+
+    if (await matchIsRecorded(this.env.DB, att.userId, opponent, game, matchId)) {
+      await this.announceRecord(att.userId, opponent, game, matchId, "already-recorded");
+      return;
+    }
+
+    // The independent check. A client that claims a forfeit while its opponent
+    // is still connected is simply told no — it can retry once the reconnect
+    // window has genuinely elapsed.
+    if (this.liveSocketsFor(opponent).length > 0) {
+      return this.rejectReport(ws, game, matchId, opponent, "opponent-still-connected");
+    }
+
+    await recordMatch(this.env.DB, {
+      a: att.userId,
+      b: opponent,
+      game,
+      matchId,
+      winner: att.userId,
+      source: "forfeit",
+      atSec: Math.floor(Date.now() / 1000),
+    });
+    // Any half-attestation for this match is now moot.
+    await this.state.storage.delete(this.resultKey(att.userId, opponent, game, matchId));
+    await this.announceRecord(att.userId, opponent, game, matchId, "forfeit");
+  }
+
+  /** Tell both players their (own-perspective) record after a match settles.
+   *  The forfeiting player has no live socket by definition, so their copy
+   *  simply goes nowhere — they pick the record up from GET /games/records. */
+  private async announceRecord(a: string, b: string, game: string, matchId: string, source: string): Promise<void> {
+    for (const [me, them] of [[a, b], [b, a]] as const) {
+      const record = await loadRecordVs(this.env.DB, me, them, game);
+      const msg = JSON.stringify({ type: "game-record", game, match_id: matchId, opponent: them, source, record });
+      for (const sock of this.socketsFor(me)) this.safeSend(sock, msg);
+    }
+  }
+
+  /** Drop half-reports whose window has closed; returns how many are still
+   *  waiting (the alarm uses that to decide whether to keep ticking). */
+  private async sweepPendingResults(now: number): Promise<number> {
+    const entries = await this.state.storage.list<PendingResult>({ prefix: RESULT_PREFIX });
+    const stale: string[] = [];
+    for (const [key, value] of entries) {
+      if (now - value.firstReportAt > this.resultTimeoutMs()) stale.push(key);
+    }
+    if (stale.length > 0) await this.state.storage.delete(stale);
+    return entries.size - stale.length;
   }
 
   // ---- internals ----

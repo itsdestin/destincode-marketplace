@@ -2,6 +2,37 @@
 // with desktop/src/shared/types.ts SkillEntry and catalog-types.ts CatalogMeta.
 export const CATALOG_SOURCES = ["wecoded", "anthropic", "docker", "awesome-copilot", "cursorrules"];
 
+/** Which COLLECTOR feeds each of those destinations. The two lists are not the same list,
+ *  and that is the whole point: `anthropic` is a destination with no collector of its own —
+ *  the `wecoded` collector emits rows into BOTH `wecoded` and `anthropic`. build.mjs reads
+ *  this both to know where a collector's rows land and to explain a rejected --source. */
+export const DESTINATION_COLLECTOR = {
+  wecoded: "wecoded",
+  anthropic: "wecoded",
+  docker: "docker",
+  "awesome-copilot": "awesome-copilot",
+  cursorrules: "cursorrules",
+};
+
+/** The destinations one collector writes to, in declaration order. */
+export function destinationsOf(collector) {
+  return CATALOG_SOURCES.filter((d) => DESTINATION_COLLECTOR[d] === collector);
+}
+
+/** WHY THIS IS A FUNCTION. `--source` names a COLLECTOR, but the rejection message used to
+ *  be built from CATALOG_SOURCES — the DESTINATION list — so `--source anthropic` failed
+ *  with "unknown source anthropic; known: wecoded, anthropic, ..." : it listed the value it
+ *  had just refused. The message now names the collectors that actually exist, and when the
+ *  user named a real destination it says which collector produces it. */
+export function unknownSourceMessage(name, collectors) {
+  const base = `unknown --source "${name}"; collectors are: ${collectors.join(", ")}`;
+  const via = DESTINATION_COLLECTOR[name];
+  if (via && !collectors.includes(name)) {
+    return `${base}. "${name}" is a catalog destination, not a collector — its rows are produced by the "${via}" collector, so run --source ${via}.`;
+  }
+  return `${base}.`;
+}
+
 export function slug(s) {
   return String(s).toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
 }

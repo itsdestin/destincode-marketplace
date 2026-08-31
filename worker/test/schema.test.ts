@@ -17,5 +17,10 @@ describe("schema", () => {
     expect(names).toContain("reports");
     expect(names).toContain("thumbs");
     expect(names).toContain("comments");
+    // Catalog tables (migration 0006) — the rows GET /catalog serves, the run
+    // ledger the ingest writes, and the one-row version counter that IS the ETag.
+    expect(names).toContain("catalog_items");
+    expect(names).toContain("catalog_runs");
+    expect(names).toContain("catalog_meta");
   });
 });

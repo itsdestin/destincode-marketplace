@@ -100,8 +100,12 @@ describe("catalog ingest routes", () => {
     // id configured in [env.test.vars] ADMIN_USER_IDS.
     const token = await issueTestSession(await createTestAccount({ githubId: "424242", login: "admin" }));
     const res = await SELF.fetch("https://test.local/admin/catalog/health", { headers: { Authorization: `Bearer ${token}` } });
-    const body = await res.json<{ sources: Array<{ source: string; live: number; lastFinishedAt: number }> }>();
+    const body = await res.json<{ version: number; publishedVersion: number | null; sources: Array<{ source: string; live: number; lastFinishedAt: number }> }>();
     expect(body.sources).toEqual([expect.objectContaining({ source: "docker", live: 2 })]);
+    // publishedVersion is the whole point of this route in production: if it lags
+    // `version` across a run that changed rows, the KV publish is failing silently
+    // and every request is quietly paying the old per-request D1 price.
+    expect(body.publishedVersion).toBe(body.version);
     expect(body.sources[0]!.lastFinishedAt).toBeGreaterThan(0);
     // …and the ingest token alone does not open it — a robot credential is not a person.
     expect((await SELF.fetch("https://test.local/admin/catalog/health", { headers: { "X-Catalog-Token": "test-ingest-token" } })).status).toBe(401);

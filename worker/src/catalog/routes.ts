@@ -10,6 +10,7 @@ import { validateId } from "../lib/validate";
 import { parseJsonBody } from "../lib/parse-json";
 import { requireAuth } from "../auth/middleware";
 import { requireAdminAccount } from "../auth/admin";
+import { buildCatalogBody, publishCatalog, publishedVersion, readPublished } from "./publish";
 
 export const catalogRoutes = new Hono<HonoEnv>();
 
@@ -196,6 +197,22 @@ catalogRoutes.post("/admin/catalog/finish", requireIngestToken, async (c) => {
   await c.env.DB.prepare("UPDATE catalog_runs SET finished_at = ?, retired = ?, note = ? WHERE id = ? AND source = ?")
     .bind(now, retired, body.note ?? null, body.run_id, body.source).run();
   if (retired) await bumpCatalogVersion(c.env.DB, now);
+
+  // Publish only when THIS RUN actually changed the catalog. The signal is the run
+  // row's own counters, not a version diff taken across this one request: a run's
+  // writes happen in earlier /upsert calls, so by the time `finish` arrives the
+  // version has already stopped moving. `upserted > 0 || retired > 0` is exactly
+  // when the version was bumped (rule 3 makes that exact).
+  //
+  // Republishing an unchanged catalog would rewrite a multi-MB object 24 times a
+  // day for nothing. And a publish failure must NOT fail the run — the route still
+  // falls back to D1, and the next changed run republishes.
+  const runRow = await c.env.DB.prepare("SELECT upserted FROM catalog_runs WHERE id = ? AND source = ?")
+    .bind(body.run_id, body.source).first<{ upserted: number }>();
+  if ((runRow?.upserted ?? 0) > 0 || retired > 0) {
+    try { await publishCatalog(c.env); }
+    catch (err) { console.error("catalog publish failed", err); }
+  }
   return c.json({ ok: true, retired });
 });
 
@@ -245,7 +262,15 @@ catalogRoutes.get("/admin/catalog/health", requireAuth, async (c) => {
             (SELECT r.note FROM catalog_runs r WHERE r.source = i.source ORDER BY r.finished_at DESC LIMIT 1) AS lastNote
      FROM catalog_items i WHERE i.deprecated = 0 GROUP BY i.source ORDER BY i.source`
   ).all();
-  return c.json({ version: meta?.version ?? 0, updatedAt: meta?.updated_at ?? 0, sources: results });
+  // publishedVersion lagging `version` across a run that changed rows means the
+  // publish is failing silently — invisible from outside, because the D1 fallback
+  // keeps answering correctly while every request quietly pays the old price.
+  return c.json({
+    version: meta?.version ?? 0,
+    publishedVersion: await publishedVersion(c.env),
+    updatedAt: meta?.updated_at ?? 0,
+    sources: results,
+  });
 });
 
 /** Kill switch — see wrangler.toml [vars] CATALOG_ENABLED. Exported so a test can
@@ -287,19 +312,13 @@ catalogRoutes.get("/catalog", async (c) => {
   c.header("ETag", etag);
   if (c.req.header("If-None-Match") === etag) return c.body(null, 304);
 
-  const parts: string[] = [];
-  let after = "";
-  for (;;) {
-    const { results } = await c.env.DB
-      .prepare("SELECT id, entry_json FROM catalog_items WHERE deprecated = 0 AND id > ? ORDER BY id LIMIT 500")
-      .bind(after)
-      .all<{ id: string; entry_json: string }>();
-    for (const r of results) parts.push(r.entry_json);
-    if (results.length < 500) break;
-    after = results[results.length - 1]!.id;
-  }
   c.header("Content-Type", "application/json");
-  return c.body(`{"generated_at":${meta?.updated_at ?? 0},"entries":[${parts.join(",")}]}`);
+  // The pre-built object is the normal path. The D1 build is the fallback that makes
+  // this safe: an unprovisioned namespace, an empty KV or a failed publish all degrade
+  // to the per-request assembly instead of to a broken catalog. Do not remove it.
+  const published = await readPublished(c.env);
+  if (published) return c.body(published.body);
+  return c.body(await buildCatalogBody(c.env.DB, meta?.updated_at ?? 0));
 });
 
 async function oneEntry(c: Context<HonoEnv>, id: string) {

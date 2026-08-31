@@ -124,3 +124,43 @@ describe("POST /installs — batch", () => {
     expect(row).toEqual({ n: 1 });
   });
 });
+
+// The sign-in reconcile reports EVERYTHING the client holds, including things that
+// are not marketplace listings at all. Rejecting the whole call for one of those
+// would record no installs and leave every vote refused with "must install plugin
+// before voting" — so unknown ids are dropped and the response says how many.
+describe("POST /installs — batch against a populated catalog", () => {
+  beforeEach(async () => {
+    for (const t of ["sessions", "identities", "users", "installs", "catalog_items"]) {
+      await env.DB.prepare(`DELETE FROM ${t}`).run();
+    }
+    for (const id of ["real-a", "real-b"]) {
+      await env.DB.prepare("INSERT INTO catalog_items (id, source, item_type, deprecated, updated_at, entry_json) VALUES (?, 'wecoded', 'plugin', 0, 1, '{}')")
+        .bind(id).run();
+    }
+  });
+
+  const postBatch = (token: string, body: unknown) =>
+    SELF.fetch("https://test.local/installs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    });
+
+  it("records the listings it knows, drops the rest, and says how many it dropped", async () => {
+    const { token, account } = await seedUserAndToken();
+    const res = await postBatch(token, { plugin_ids: ["real-a", "my-own-plugin", "theme:golden-sunbreak", "real-b"] });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, recorded: 3, skipped: 1 });
+    const { results } = await env.DB.prepare("SELECT plugin_id FROM installs WHERE user_id = ? ORDER BY plugin_id")
+      .bind(account.userId).all<{ plugin_id: string }>();
+    expect(results.map((r) => r.plugin_id)).toEqual(["real-a", "real-b", "theme:golden-sunbreak"]);
+  });
+
+  it("survives a reconcile in which nothing is a known listing", async () => {
+    const { token } = await seedUserAndToken();
+    const res = await postBatch(token, { plugin_ids: ["nope-one", "nope-two"] });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, recorded: 0, skipped: 2 });
+  });
+});

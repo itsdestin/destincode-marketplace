@@ -270,3 +270,28 @@ describe("admin comment takedown", () => {
     expect(q.comments[0]!.hidden).toBe(0);
   });
 });
+
+describe("ids must name a real listing", () => {
+  beforeEach(async () => {
+    for (const t of [...TABLES, "catalog_items"]) await env.DB.prepare(`DELETE FROM ${t}`).run();
+  });
+
+  it("400s a vote or comment for an id that is not in the catalog", async () => {
+    const { token, account } = await seed();
+    // A populated catalog is what turns the check on.
+    await env.DB.prepare("INSERT INTO catalog_items (id, source, item_type, deprecated, updated_at, entry_json) VALUES ('real', 'wecoded', 'plugin', 0, 1, '{}')").run();
+    await seedInstall(account.userId, "made-up");
+    expect((await post("/thumbs", token, { plugin_id: "made-up", value: "up" })).status).toBe(400);
+    expect((await post("/comments", token, { plugin_id: "made-up", text: "hi" })).status).toBe(400);
+    await seedInstall(account.userId, "real");
+    expect((await post("/thumbs", token, { plugin_id: "real", value: "up" })).status).toBe(200);
+  });
+
+  it("lets everything through while the catalog is empty, and always allows theme ids", async () => {
+    const { token, account } = await seed();
+    await seedInstall(account.userId, "anything");
+    expect((await post("/thumbs", token, { plugin_id: "anything", value: "up" })).status).toBe(200);
+    await env.DB.prepare("INSERT INTO catalog_items (id, source, item_type, deprecated, updated_at, entry_json) VALUES ('real', 'wecoded', 'plugin', 0, 1, '{}')").run();
+    expect((await post("/installs", token, { plugin_id: "theme:golden-sunbreak" })).status).toBe(200);
+  });
+});

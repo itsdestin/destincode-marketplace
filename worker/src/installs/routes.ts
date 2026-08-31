@@ -2,8 +2,9 @@ import { Hono } from "hono";
 import type { HonoEnv } from "../types";
 import { requireAuth } from "../auth/middleware";
 import { badRequest, tooMany } from "../lib/errors";
-import { validateId } from "../lib/validate";
+import { validateId, requireCatalogId, filterCatalogIds } from "../lib/validate";
 import { checkRateLimit } from "../lib/rate-limit";
+import { parseJsonBody } from "../lib/parse-json";
 
 export const installRoutes = new Hono<HonoEnv>();
 
@@ -35,9 +36,12 @@ installRoutes.post("/installs", requireAuth, async (c) => {
   if (!(await checkRateLimit(`installs:${userId}`, 100, 3600))) {
     throw tooMany("too many installs per hour");
   }
-  const body = await c.req.json<{ plugin_id?: string; plugin_ids?: unknown }>();
+  // parseJsonBody, not c.req.json(): malformed input becomes a 400 instead of an
+  // unhandled throw that surfaces as a 500. Every other route already does this.
+  const body = await parseJsonBody<{ plugin_id?: string; plugin_ids?: unknown }>(c);
 
   let ids: string[];
+  let skipped = 0;
   if (body.plugin_ids !== undefined) {
     if (!Array.isArray(body.plugin_ids) || body.plugin_ids.length === 0) {
       throw badRequest("plugin_ids must be a non-empty array");
@@ -50,14 +54,25 @@ installRoutes.post("/installs", requireAuth, async (c) => {
     // would come to believe a plugin was recorded when it was not.
     // Dedupe AFTER validating: `[...new Set()]` on raw input would hide a bad id.
     ids = [...new Set(body.plugin_ids.map((raw) => validateId(raw as string | undefined)))];
+    // …then drop anything the catalog does not list. A reconcile reports whatever
+    // the client holds, and some of that legitimately is not a marketplace listing
+    // (a self-built plugin, one installed from a path). Rejecting the whole call
+    // for one of those would record NO installs and leave every vote refused with
+    // "must install plugin before voting" — so unknown ids are dropped and the
+    // response says how many. A malformed id still rejects the call, above.
+    const kept = await filterCatalogIds(c.env.DB, ids);
+    skipped = ids.length - kept.length;
+    ids = kept;
   } else {
-    ids = [validateId(body.plugin_id)];
+    ids = [await requireCatalogId(c.env.DB, body.plugin_id)];
   }
 
   const now = Math.floor(Date.now() / 1000);
   // ON CONFLICT DO NOTHING, never DO UPDATE: reconcile runs on every sign-in,
   // and refreshing installed_at would rewrite the install history each time.
-  await c.env.DB.batch(
+  // `ids` can be empty once unknown listings are dropped above, and D1 rejects an
+  // empty batch — a reconcile of nothing must be a quiet success, not a 500.
+  if (ids.length) await c.env.DB.batch(
     ids.map((id) =>
       c.env.DB
         .prepare(
@@ -68,6 +83,8 @@ installRoutes.post("/installs", requireAuth, async (c) => {
     )
   );
   return body.plugin_ids !== undefined
-    ? c.json({ ok: true, recorded: ids.length })
+    // `skipped` appears only when something WAS dropped, so the common response
+    // shape is unchanged for every client that already reads `recorded`.
+    ? c.json(skipped > 0 ? { ok: true, recorded: ids.length, skipped } : { ok: true, recorded: ids.length })
     : c.json({ ok: true });
 });

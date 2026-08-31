@@ -12,7 +12,7 @@ import type { HonoEnv } from "../types";
 import { requireAuth } from "../auth/middleware";
 import { requireAdminAccount } from "../auth/admin";
 import { badRequest, forbidden, notFound, tooMany } from "../lib/errors";
-import { validateId } from "../lib/validate";
+import { validateId, requireCatalogId } from "../lib/validate";
 import { parseJsonBody } from "../lib/parse-json";
 import { checkRateLimit } from "../lib/rate-limit";
 import { hasInstall } from "../db";
@@ -60,7 +60,7 @@ feedbackRoutes.post("/thumbs", requireAuth, async (c) => {
     throw tooMany("too many votes per hour");
   }
   const body = await parseJsonBody<{ plugin_id?: string; value?: unknown }>(c);
-  const pluginId = validateId(body.plugin_id);
+  const pluginId = await requireCatalogId(c.env.DB, body.plugin_id);
   let vote: 1 | -1 | null;
   try { vote = parseVote(body.value); }
   catch (e) { throw badRequest((e as Error).message); }
@@ -102,7 +102,7 @@ feedbackRoutes.post("/comments", requireAuth, async (c) => {
     throw tooMany("too many comments per hour");
   }
   const body = await parseJsonBody<{ plugin_id?: string; text?: unknown }>(c);
-  const pluginId = validateId(body.plugin_id);
+  const pluginId = await requireCatalogId(c.env.DB, body.plugin_id);
   let text: string;
   try { text = validateCommentText(body.text); }
   catch (e) { throw badRequest((e as Error).message); }

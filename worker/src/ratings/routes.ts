@@ -6,6 +6,7 @@ import { validateId, requireCatalogId } from "../lib/validate";
 import { hasInstall } from "../db";
 import { classifyReview, validateReviewText } from "./moderation";
 import { checkRateLimit } from "../lib/rate-limit";
+import { parseJsonBody } from "../lib/parse-json";
 
 // Shape returned by GET /ratings/:plugin_id for a single review entry.
 interface RatingListEntry {
@@ -30,7 +31,10 @@ ratingRoutes.post("/ratings", requireAuth, async (c) => {
   if (!(await checkRateLimit(`ratings:${userId}`, 30, 3600))) {
     throw tooMany("too many ratings per hour");
   }
-  const body = await c.req.json<{ plugin_id?: string; stars?: number; review_text?: string | null }>();
+  // parseJsonBody, not c.req.json(): a malformed body throws a plain SyntaxError that
+  // onError reports as a 500 ("we broke") when the truth is a 400 ("your request was
+  // broken"). Every other route already parses through this helper.
+  const body = await parseJsonBody<{ plugin_id?: string; stars?: number; review_text?: string | null }>(c);
   const pluginId = await requireCatalogId(c.env.DB, body.plugin_id);
   const stars = body.stars;
   if (typeof stars !== "number" || !Number.isInteger(stars) || stars < 1 || stars > 5) {

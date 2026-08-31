@@ -30,6 +30,7 @@ import { buildAuthorizeUrl, exchangeCode, fetchGitHubUser } from "./github";
 import { issueSession, revokeSession } from "./sessions";
 import { requireAuth } from "./middleware";
 import { resolveProviderSignIn } from "../db";
+import { parseJsonBody } from "../lib/parse-json";
 
 // "Who am I" shape returned in the poll completion payload and by GET /auth/me.
 // `login` stays the GitHub login for player-tag continuity (Phase 0 games use
@@ -167,7 +168,9 @@ authRoutes.get("/auth/github/callback", async (c) => {
 });
 
 authRoutes.post("/auth/github/poll", async (c) => {
-  const body = await c.req.json<{ device_code?: string }>();
+  // parseJsonBody, not c.req.json(): malformed input becomes a 400, not a 500. See
+  // lib/parse-json.ts.
+  const body = await parseJsonBody<{ device_code?: string }>(c);
   if (!body.device_code) throw badRequest("missing device_code");
 
   const row = await c.env.DB

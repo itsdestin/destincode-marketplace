@@ -2,26 +2,26 @@
 
 The skill store for [YouCoded](https://github.com/itsdestin/youcoded). Browse and install skills from within the app.
 
-Contains 174 entries: 26 YouCoded-specific skills and 148 imported from Anthropic's official Claude Code plugin registry.
+Contains 339 entries, 302 of them live: 13 YouCoded plugins and 289 imported from Anthropic's official Claude Code plugin registry. (The rest are deprecated — kept as rows so an already-installed copy still resolves, but hidden from the store.)
 
 ## How It Works
 
 - The YouCoded app fetches `index.json` to populate the skill marketplace
 - `curated-defaults.json` determines which skills appear pre-selected for new users
 - `featured.json` drives the featured section at the top of the marketplace
-- `stats.json` provides usage counts (rebuilt daily by CI)
+- `stats.json` provides usage counts (a committed snapshot — nothing rebuilds it automatically; live counts come from the Worker's `/stats`)
 - Plugin installation is handled by the app — not this repo
 
 ## Structure
 
 ```
-index.json                 # All registry entries (174 entries)
+index.json                 # All registry entries (339 entries, 302 live)
 marketplace.json           # YouCoded/community entries (source for the sync)
 .claude-plugin/
   marketplace.json         # Generated mirror — the path Claude Code actually reads
 curated-defaults.json      # Default skills for new users
 featured.json              # Featured skill highlights
-stats.json                 # Usage stats (rebuilt by CI)
+stats.json                 # Usage stats (committed snapshot, not auto-rebuilt)
 overrides/                 # Per-plugin custom metadata
 scripts/
   sync.js                  # Imports plugins from upstream Anthropic registries

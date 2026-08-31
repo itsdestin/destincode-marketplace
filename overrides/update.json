@@ -1,9 +1,0 @@
-{
-  "tagline": "Keep the youcoded-core plugin up to date.",
-  "tags": [
-    "automation",
-    "plugin"
-  ],
-  "audience": "general",
-  "longDescription": "Fetches the latest `youcoded-core` release from GitHub and installs it in place — bumps the `VERSION` file, pulls new hooks/commands, runs migrations, reconciles your settings.json hooks against the new manifest, and reports exactly what changed. Run it whenever you remember (no auto-update; you're in control), or when `/health` warns that you're behind.\n\nSafe to re-run; idempotent by design. Verifies the working tree is clean before touching anything, never overwrites local edits, and tells you exactly which commands to run if it can't auto-resolve a conflict. Offline-safe: gracefully tells you it can't check when there's no network rather than failing partway through."
-}

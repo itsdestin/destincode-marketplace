@@ -5,7 +5,12 @@ import { bayesianAverage } from "./bayesian";
 export const statsRoutes = new Hono<HonoEnv>();
 
 interface PluginAgg { installs: number; review_count: number; rating: number; thumbs_up: number; thumbs_down: number }
-interface ThemeAgg { likes: number }
+interface ThemeAgg { likes: number; installs: number }
+
+// Task 22: the app records a theme install under a `theme:<slug>` plugin id,
+// because `installs` is one table for both kinds. Everything below keys off
+// this one constant so the split is stated once.
+const THEME_ID_PREFIX = "theme:";
 
 statsRoutes.get("/stats", async (c) => {
   const installRows = await c.env.DB
@@ -33,8 +38,22 @@ statsRoutes.get("/stats", async (c) => {
   // Every entry carries every field: MarketplaceCard reads thumbs_up/thumbs_down
   // straight off the object, so a partially-seeded entry would render undefined.
   const EMPTY: PluginAgg = { installs: 0, review_count: 0, rating: 0, thumbs_up: 0, thumbs_down: 0 };
+  // Same reasoning for themes: MarketplaceCard reads .installs and .likes off
+  // the object, so an entry seeded by only one of the two queries still needs
+  // both fields present.
+  const EMPTY_THEME: ThemeAgg = { likes: 0, installs: 0 };
+  const themes: Record<string, ThemeAgg> = {};
+
   const plugins: Record<string, PluginAgg> = {};
   for (const r of installRows.results) {
+    // A `theme:` row belongs to themes[] ONLY. Leaving it in plugins[] as well
+    // would report the same install twice under two different ids.
+    if (r.plugin_id.startsWith(THEME_ID_PREFIX)) {
+      const slug = r.plugin_id.slice(THEME_ID_PREFIX.length);
+      if (!slug) continue; // a bare "theme:" names nothing — drop it
+      themes[slug] = { ...EMPTY_THEME, installs: r.n };
+      continue;
+    }
     plugins[r.plugin_id] = { ...EMPTY, installs: r.n };
   }
   for (const r of ratingRows.results) {
@@ -50,8 +69,11 @@ statsRoutes.get("/stats", async (c) => {
     plugins[r.plugin_id] = entry;
   }
 
-  const themes: Record<string, ThemeAgg> = {};
-  for (const r of likeRows.results) themes[r.theme_id] = { likes: r.n };
+  for (const r of likeRows.results) {
+    const entry = themes[r.theme_id] ?? { ...EMPTY_THEME };
+    entry.likes = r.n;
+    themes[r.theme_id] = entry;
+  }
 
   c.header("Cache-Control", "public, max-age=300");
   return c.json({

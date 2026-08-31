@@ -56,6 +56,31 @@ export function licenseToSpdx(name) {
 
 const SOURCE_MARKETPLACE = { wecoded: "youcoded", anthropic: "anthropic", docker: "docker", "awesome-copilot": "awesome-copilot", cursorrules: "cursorrules" };
 
+/** One capability line per distinct (kind, label, detail), in first-seen order.
+ *
+ *  WHY this lives here, at the single point EVERY source's rows pass through, rather
+ *  than inside one scanner: the duplicate comes from two independent producers that
+ *  cannot see each other's output. For a bundle carrying a `.mcp.json`, the generic
+ *  file scan finds the server's host in the file's raw TEXT, and mcpCapabilities finds
+ *  it again in the PARSED url — so "Connects to the internet · adobe-creativity.adobe.io"
+ *  was listed twice under "What this can do". Measured on the live catalog 2026-08-31:
+ *  29 of 4,156 rows. Fixing it in one scanner would leave the next pair of producers
+ *  free to repeat it.
+ *
+ *  Identity is the WHOLE line: two "Needs a Foo key" lines naming different environment
+ *  variables are different facts and both must survive. */
+function dedupeCapabilities(caps) {
+  const seen = new Set();
+  const out = [];
+  for (const c of caps ?? []) {
+    const key = JSON.stringify([c?.kind ?? null, c?.label ?? null, c?.detail ?? null]);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(c);
+  }
+  return out;
+}
+
 /** Build one catalog row. `source` is the ingest source name; everything the UI
  *  reads lives under `catalog`. Fields absent from the input are omitted, not
  *  nulled, so JSON stays small.
@@ -81,7 +106,7 @@ export function makeEntry(o) {
       itemType: o.itemType,
       origin: { tier: o.origin, ...(o.mirroredFrom ? { mirroredFrom: o.mirroredFrom } : {}) },
       scan: o.scan,
-      capabilities: o.capabilities ?? [],
+      capabilities: dedupeCapabilities(o.capabilities),
       ...(o.license ? { license: o.license } : {}),
       ...(o.sourceCommit ? { sourceCommit: o.sourceCommit } : {}),
       ...(o.partOf ? { partOf: o.partOf } : {}),

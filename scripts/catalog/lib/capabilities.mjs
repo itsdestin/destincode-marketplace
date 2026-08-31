@@ -6,7 +6,12 @@
 // ingest's skip key (`<commit>:<version>`), so bumping it re-scans the whole catalog on
 // the next hourly run. Leaving it alone after tightening a rule means the tightening
 // never actually runs against anything already listed.
-export const SCAN_RULES_VERSION = "1";
+// v2 (2026-08-31): the four first-week bug fixes changed what a scan produces —
+// capability lines are de-duplicated, and the 53 Anthropic plugins recorded with a
+// path inside Anthropic's own repo are now actually read. Without this bump neither
+// correction reaches a listing until its upstream repo happens to move, because the
+// skip key would still match. The bump IS the re-scan.
+export const SCAN_RULES_VERSION = "2";
 export const skipKey = (sha) => `${sha}:${SCAN_RULES_VERSION}`;
 
 const SCRIPT_EXT = /\.(sh|bash|zsh|py|js|mjs|cjs|ts|rb|ps1)$/i;

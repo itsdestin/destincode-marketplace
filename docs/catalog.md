@@ -118,9 +118,23 @@ Three states, and the difference matters:
 - **unchecked** — the files could **not** be read (rate limit, no repo, a mirrored listing we
   only hold metadata for). Never "checked" without having actually read the files.
 
-Roughly a fifth of bundles are `unchecked` today. 53 of those are Anthropic plugins recorded
-with a path inside *Anthropic's own* repository rather than ours, so there is nothing for us to
-fetch; teaching the fetcher to resolve them is a roadmap item.
+4 of the 302 bundles are `unchecked` today. It was 54 until 2026-08-31: 53 of those were
+Anthropic plugins recorded with a path inside *Anthropic's own* repository
+(`./plugins/agent-sdk-dev`) rather than ours, so there was nothing in our checkout to fetch.
+The fetcher now reads them from `anthropics/claude-plugins-official`, which was verified to
+hold all 53 of those paths.
+
+> **A subfolder that matches nothing in the tree is now `unchecked`, not `checked`.** This is
+> the same trap as the unreadable file list above, one level down: a `sourceSubdir` that is not
+> in the tree we fetched yields an *empty* file list, an empty list scans clean, and the
+> listing gets a clean bill of health for files nobody read. Found on the 2026-08-31 dry run:
+> the three `netsuite-*` plugins live on the branch `ai-plugins-dist`, but the ingest reads a
+> repository's **default** branch, where the folder `anthropic/netsuite-suitecloud` does not
+> exist — 0 matching paths on `master`, 8 on `ai-plugins-dist` — so all three (13 rows counting
+> their members) had been stamped "Likely safe" having read nothing. They now correctly report
+> `unchecked`. **The root cause is still open:** index.json records `sourceGitRef:
+> "ai-plugins-dist"` and the ingest ignores it, pinning every listing to its repo's default
+> branch. 4 entries name a non-default ref today.
 
 ## How a human checks it is still alive
 

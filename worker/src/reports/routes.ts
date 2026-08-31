@@ -4,6 +4,7 @@ import { requireAuth } from "../auth/middleware";
 import { badRequest, notFound, tooMany } from "../lib/errors";
 import { randomToken } from "../lib/crypto";
 import { checkRateLimit } from "../lib/rate-limit";
+import { parseJsonBody } from "../lib/parse-json";
 import { requireAdminAccount } from "../auth/admin";
 
 export const reportRoutes = new Hono<HonoEnv>();
@@ -19,7 +20,9 @@ reportRoutes.post("/reports", requireAuth, async (c) => {
   if (!(await checkRateLimit(`reports:${reporter}`, 20, 3600))) {
     throw tooMany("too many reports per hour");
   }
-  const body = await c.req.json<{ rating_user_id?: string; rating_plugin_id?: string; reason?: string }>();
+  // parseJsonBody, not c.req.json(): malformed input becomes a 400, not a 500. See
+  // lib/parse-json.ts.
+  const body = await parseJsonBody<{ rating_user_id?: string; rating_plugin_id?: string; reason?: string }>(c);
   if (!body.rating_user_id || !body.rating_plugin_id) throw badRequest("missing fields");
   if (body.reason && body.reason.length > 500) throw badRequest("reason too long");
   const id = randomToken(16);

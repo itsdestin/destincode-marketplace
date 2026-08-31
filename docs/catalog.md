@@ -63,15 +63,31 @@ and, if the result is byte-for-byte identical, writes nothing. *Why:* the databa
 100,000 row-writes a day. Rewriting every row hourly just to mark it "seen" would spend most of
 that on rows that did not change.
 
-> **The corollary that bites: no source may stamp a per-run value into a row that did not
-> change.** No `new Date()`, no run id, no "fetched at". If it does, every row differs every
-> hour, rule 3 never fires, and — worse — the catalog version moves, which changes the ETag,
-> which makes **every device re-download the whole multi-megabyte catalog every hour**.
-> This has already happened once: our own `local` plugins have no upstream commit to compare,
-> so their files are re-read every run and stamped with a fresh `scan.checkedAt`. That one
-> field made 71 rows differ hourly. The Worker's merge now keeps the stored `checkedAt` when
-> the status, findings and rule version are all identical — but a **new** source that stamps a
-> timestamp will reintroduce the bug, and nothing will alert you.
+> **The corollary that bites: no row may carry a value that moves on its own.** If one does,
+> rows differ every hour, rule 3 never fires, and — worse — the catalog version moves, which
+> changes the ETag, which makes **every device re-download the whole multi-megabyte catalog
+> every hour**, Android over mobile data.
+>
+> This has happened **twice**, and the second time is the one to learn from.
+>
+> **First, a synthetic stamp.** Our own `local` plugins have no upstream commit to compare, so
+> their files are re-read every run and stamped with a fresh `scan.checkedAt`. That one field
+> made 71 rows differ hourly.
+>
+> **Then a real one.** `catalog.stars` — a genuine GitHub star count, updated honestly from the
+> API. `agent-sdk-dev` went 35664 → 35665 and the row was rewritten. Snapshot-diffing
+> `GET /catalog` either side of one run showed **97 rows differing and `catalog.stars` as the
+> only field that moved**, on a value **neither the desktop app nor Android ever displays**.
+> After the fix the same experiment gave 1 differing row.
+>
+> **So the rule is not "don't stamp timestamps" — it is "nothing may drift faster than what a
+> user can see".** A star count, a download total, a "last pushed" date and a run id all break
+> it identically, and the legitimate-looking ones are the dangerous ones, because they survive
+> review. When you add a field, ask what moves it and how often. If it can move while nothing
+> a person would notice has changed, exclude it from the change comparison in
+> `mergeOntoStored`: keep the stored value, and take the incoming one only when the row already
+> differs for another reason. Nothing will alert you if you get this wrong — the symptom is a
+> bandwidth bill and a slow app, not an error.
 
 **4. Never mass-retire on one bad run.** Retirement is an explicit list of ids computed by the
 ingest, and the Worker **refuses** any run trying to delist more than a fifth of a source

@@ -141,3 +141,80 @@ describe("GET /games/scores/:game", () => {
     expect(res.status).toBe(400);
   });
 });
+
+// All-games bests (the games picker's one-call read). Own bests only — this is
+// deliberately NOT a board, so nothing a friend did may appear here.
+describe("GET /games/scores (every solo game at once)", () => {
+  async function mine(token: string) {
+    const res = await SELF.fetch("https://test.local/games/scores", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(200);
+    return res.json() as Promise<Record<string, { best: number; best_at: number; runs: number }>>;
+  }
+
+  it("requires a session", async () => {
+    const res = await SELF.fetch("https://test.local/games/scores");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns an empty object, not an error, before you have played anything", async () => {
+    const token = await issueTestSession(await createTestAccount());
+    expect(await mine(token)).toEqual({});
+  });
+
+  it("returns your best in every game you have played", async () => {
+    const token = await issueTestSession(await createTestAccount());
+    await post(token, { game: "flappy", score: 31 });
+    await post(token, { game: "flappy", score: 4 });          // a run, not a best
+    await post(token, { game: "twenty-forty-eight", score: 2048 });
+
+    const all = await mine(token);
+    expect(Object.keys(all).sort()).toEqual(["flappy", "twenty-forty-eight"]);
+    expect(all.flappy).toMatchObject({ best: 31, runs: 2 });
+    expect(all.flappy!.best_at).toBeGreaterThan(0);
+    expect(all["twenty-forty-eight"]).toMatchObject({ best: 2048, runs: 1 });
+  });
+
+  it("never includes a friend's score — this is your bests, not a board", async () => {
+    const me = await createTestAccount();
+    const friend = await createTestAccount();
+    await befriend(me.userId, friend.userId);
+    const myToken = await issueTestSession(me);
+    await post(await issueTestSession(friend), { game: "flappy", score: 9999 });
+
+    // The friend outscores me and would top the /games/scores/flappy board...
+    expect((await board(myToken, "flappy")).entries.map((e) => e.id)).toEqual([friend.userId]);
+    // ...but has no place in my own bests.
+    expect(await mine(myToken)).toEqual({});
+
+    await post(myToken, { game: "flappy", score: 5 });
+    expect(await mine(myToken)).toMatchObject({ flappy: { best: 5, runs: 1 } });
+  });
+
+  it("filters out a row left behind by a game that no longer exists", async () => {
+    const me = await createTestAccount();
+    const token = await issueTestSession(me);
+    await post(token, { game: "flappy", score: 12 });
+    // Written directly: the route rejects unknown ids, so the only way such a
+    // row exists is a game that WAS in SOLO_GAMES and later left it.
+    const now = Math.floor(Date.now() / 1000);
+    await env.DB.prepare(
+      "INSERT INTO game_scores (user_id, game, best_score, best_at, runs, updated_at) VALUES (?, 'retired-game', 999, ?, 3, ?)"
+    ).bind(me.userId, now, now).run();
+
+    const all = await mine(token);
+    expect(Object.keys(all)).toEqual(["flappy"]);
+    expect(all["retired-game"]).toBeUndefined();
+  });
+
+  it("does not shadow GET /games/scores/:game", async () => {
+    const token = await issueTestSession(await createTestAccount());
+    await post(token, { game: "flappy", score: 8 });
+    // Both shapes must still resolve to their own handler.
+    const one = await board(token, "flappy");
+    expect(one.game).toBe("flappy");
+    expect(one.you).toMatchObject({ best_score: 8 });
+    expect(await mine(token)).toEqual({ flappy: { best: 8, best_at: one.you.best_at, runs: 1 } });
+  });
+});

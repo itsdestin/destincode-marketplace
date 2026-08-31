@@ -103,6 +103,54 @@ gameRoutes.post("/games/scores", requireAuth, async (c) => {
   });
 });
 
+/** The caller's own best in one game, as returned by GET /games/scores. */
+interface MyBest {
+  best: number;
+  best_at: number;   // unix seconds, when the best was set
+  runs: number;
+}
+
+// GET /games/scores → { [game]: { best, best_at, runs } }
+//
+// The caller's own best in EVERY solo game, in one call. The games picker paints
+// "Your best: 31 pipes" on every tile at once, so a per-game round trip would be
+// one request per tile — and the client would have to hardcode the game list to
+// know what to ask for, duplicating SOLO_GAMES. Keeping that list here is the
+// whole reason this route exists.
+//
+// Registered BEFORE /games/scores/:game so the two are visibly distinct: Hono
+// matches on segment count, so ":game" can never swallow a path with nothing
+// after "scores" — but reading them adjacent makes that obvious rather than
+// something to re-derive.
+//
+// Own bests only, unlike the per-game board below — no friend rows, so no join
+// and no friendship check.
+gameRoutes.get("/games/scores", requireAuth, async (c) => {
+  const me = c.get("userId");
+  // ONE query for every game. Filtering by game in SQL would need a bound
+  // placeholder per entry of SOLO_GAMES (renumbered whenever a game ships), and
+  // a caller has at most a handful of rows anyway — so the rows come back whole
+  // and isSoloGame() does the filtering, reusing the exact allowlist the write
+  // path validates against.
+  const rows = await c.env.DB
+    .prepare("SELECT game, best_score, best_at, runs FROM game_scores WHERE user_id = ?")
+    .bind(me)
+    .all<{ game: string; best_score: number; best_at: number; runs: number }>();
+
+  const out: Record<string, MyBest> = {};
+  for (const r of rows.results ?? []) {
+    // A game removed from the arcade leaves its rows behind (nothing deletes
+    // them — see the migration's note on there being no catalog to join
+    // against). Skipping them here keeps a retired game off the picker instead
+    // of surfacing a tile the app can no longer open.
+    if (!isSoloGame(r.game)) continue;
+    out[r.game] = { best: r.best_score, best_at: r.best_at, runs: r.runs };
+  }
+  // A player who has never finished a run gets {} — an empty result, not an
+  // error: "no scores yet" is the normal first-launch state (§6.5).
+  return c.json(out);
+});
+
 // GET /games/scores/:game → { game, you, entries }
 //
 // The caller's best plus their friends' bests, ranked. `you` is called out

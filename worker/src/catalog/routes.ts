@@ -96,6 +96,26 @@ function mergeOntoStored(incoming: IngestEntry, storedJson: string | null, nowIs
   }
   const out: IngestEntry = { ...stored, ...incoming, catalog: merged };
   if (!incoming.publishedAt && stored.publishedAt) out.publishedAt = stored.publishedAt;
+  // A STAR COUNT ALONE IS NOT A CATALOG CHANGE — same failure as `checkedAt` above, a
+  // different field. GET /catalog was snapshotted either side of one ingest run and
+  // diffed field by field: 97 rows differed and the ONLY field that had moved was
+  // `catalog.stars` (agent-sdk-dev 35664 -> 35665 — one new GitHub star). Each of those
+  // rewrites bumped catalog_meta.version, which IS the ETag, so the next client to ask
+  // got a 4.6 MB `200` instead of a free `304`: ~24 full re-downloads per device per day,
+  // Android over mobile data, for a number NOTHING RENDERS (no desktop renderer and no
+  // Kotlin code reads `catalog.stars`).
+  //
+  // Deliberately narrow, and NOT a freeze: we build the row a second time with the STORED
+  // count, and only if that version is byte-identical to what is on file do we return it —
+  // i.e. only when stars was the sole difference. Then the write-skip below sees the same
+  // bytes and nothing moves. Any row that changed for any other reason falls through and
+  // takes the INCOMING count, so stars stay fresh everywhere except rows that are otherwise
+  // completely static.
+  if (b.stars !== undefined && a.stars !== undefined && a.stars !== b.stars) {
+    // Overwriting an existing key keeps its position, so the bytes stay comparable.
+    const withStoredStars: IngestEntry = { ...out, catalog: { ...merged, stars: b.stars } };
+    if (JSON.stringify(withStoredStars) === storedJson) return withStoredStars;
+  }
   return out;
 }
 

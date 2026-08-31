@@ -1,0 +1,34 @@
+[
+ {
+  "id": "claude-security",
+  "type": "plugin",
+  "displayName": "Claude Security",
+  "description": "Security review, scanning and patching.",
+  "category": "development",
+  "author": "Anthropic",
+  "tags": [],
+  "version": "1.0.0",
+  "publishedAt": "2026-08-06T00:00:00Z",
+  "sourceMarketplace": "anthropic",
+  "sourceType": "local",
+  "sourceRef": "./plugins/claude-security",
+  "repoUrl": "https://github.com/anthropics/claude-plugins-official/tree/main/plugins/claude-security",
+  "components": {
+   "skills": [
+    "claude-security"
+   ],
+   "hooks": [
+    "banner_hook"
+   ],
+   "commands": [],
+   "agents": [
+    "claude-security",
+    "explore",
+    "patch-generator"
+   ],
+   "mcpServers": [],
+   "hasHooksManifest": false,
+   "hasMcpConfig": false
+  }
+ }
+]

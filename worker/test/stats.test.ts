@@ -93,6 +93,53 @@ describe("GET /stats", () => {
     expect(body.themes["strawberry-kitty"]?.likes).toBe(1);
   });
 
+  // ── Theme installs (Task 22) ────────────────────────────────────────────────
+  // The app records a theme install under a `theme:<slug>` plugin id. /stats
+  // has to strip that prefix into themes[], and must NOT also leave the row in
+  // plugins[] — otherwise one install is reported twice under two ids.
+
+  it("counts theme installs into themes[slug].installs with the prefix stripped", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    for (const uid of ["github:1", "github:2"]) {
+      await env.DB.prepare("INSERT INTO users (id, display_name, created_at) VALUES (?, ?, ?)")
+        .bind(uid, uid, now).run();
+      await env.DB.prepare("INSERT INTO installs (user_id, plugin_id, installed_at) VALUES (?, ?, ?)")
+        .bind(uid, "theme:strawberry-kitty", now).run();
+    }
+    const body = await (await SELF.fetch("https://test.local/stats"))
+      .json<{ plugins: Record<string, unknown>; themes: Record<string, { installs: number; likes: number }> }>();
+    expect(body.themes["strawberry-kitty"]?.installs).toBe(2);
+    // Not counted a second time as a plugin, under either spelling.
+    expect(body.plugins["theme:strawberry-kitty"]).toBeUndefined();
+    expect(body.plugins["strawberry-kitty"]).toBeUndefined();
+  });
+
+  it("gives every theme entry both fields, whichever half seeded it", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    await env.DB.prepare("INSERT INTO users (id, display_name, created_at) VALUES (?, ?, ?)")
+      .bind("github:1", "u1", now).run();
+    await env.DB.prepare("INSERT INTO installs (user_id, plugin_id, installed_at) VALUES (?, ?, ?)")
+      .bind("github:1", "theme:installed-only", now).run();
+    await env.DB.prepare("INSERT INTO theme_likes (user_id, theme_id, liked_at) VALUES (?, ?, ?)")
+      .bind("github:1", "liked-only", now).run();
+    const body = await (await SELF.fetch("https://test.local/stats"))
+      .json<{ themes: Record<string, { installs: number; likes: number }> }>();
+    expect(body.themes["installed-only"]).toMatchObject({ installs: 1, likes: 0 });
+    expect(body.themes["liked-only"]).toMatchObject({ installs: 0, likes: 1 });
+  });
+
+  it("leaves a plugin whose id merely contains 'theme' alone", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    await env.DB.prepare("INSERT INTO users (id, display_name, created_at) VALUES (?, ?, ?)")
+      .bind("github:1", "u1", now).run();
+    await env.DB.prepare("INSERT INTO installs (user_id, plugin_id, installed_at) VALUES (?, ?, ?)")
+      .bind("github:1", "theme-builder", now).run();
+    const body = await (await SELF.fetch("https://test.local/stats"))
+      .json<{ plugins: Record<string, { installs: number }>; themes: Record<string, unknown> }>();
+    expect(body.plugins["theme-builder"]?.installs).toBe(1);
+    expect(body.themes["builder"]).toBeUndefined();
+  });
+
   it("sets Cache-Control: public, max-age=300", async () => {
     const res = await SELF.fetch("https://test.local/stats");
     expect(res.headers.get("Cache-Control")).toBe("public, max-age=300");

@@ -1,9 +1,0 @@
-{
-  "tagline": "Deprecated — discover features from the marketplace instead.",
-  "tags": [
-    "docs",
-    "reference"
-  ],
-  "audience": "general",
-  "longDescription": "The legacy `/toolkit` inventory command no longer exists. Feature discovery has moved to the YouCoded marketplace in the app — browse, search, and install plugins visually rather than reading a printed list. This registry entry is kept for historical clients and will be removed in a future cleanup.\n\nIf you installed this in the past: uninstall it from the app's marketplace. The commands it used to index (`/health`, `/update`, `/diagnose`) still exist inside the `youcoded-core` plugin."
-}

@@ -1,0 +1,125 @@
+{
+ "version": 3,
+ "name": "docker-mcp",
+ "displayName": "Docker MCP Catalog",
+ "registry": {
+  "brave": {
+   "description": "Search the Web for pages, images, news, videos, and more using the Brave Search API.",
+   "title": "Brave Search",
+   "type": "server",
+   "dynamic": {},
+   "dateAdded": "2025-05-05T20:08:35Z",
+   "image": "mcp/brave-search@sha256:f58a5c22c1196ec7bd1ca586ce216f2334fc298550ddcf652c0e8adb6d256d78",
+   "ref": "",
+   "readme": "http://desktop.docker.com/mcp/catalog/v3/readme/brave.md",
+   "toolsUrl": "http://desktop.docker.com/mcp/catalog/v3/tools/brave.json",
+   "source": "https://github.com/brave/brave-search-mcp-server/tree/fd28e3e7b3e1911b4a2ba87a199feb86ec173c60",
+   "upstream": "https://github.com/brave/brave-search-mcp-server",
+   "remote": {},
+   "icon": "https://avatars.githubusercontent.com/u/12301619?s=200&v=4",
+   "tools": [
+    {
+     "name": "brave_image_search",
+     "parameters": {
+      "type": "",
+      "properties": null,
+      "required": null
+     },
+     "container": {}
+    },
+    {
+     "name": "brave_llm_context",
+     "parameters": {
+      "type": "",
+      "properties": null,
+      "required": null
+     },
+     "container": {}
+    },
+    {
+     "name": "brave_local_search",
+     "parameters": {
+      "type": "",
+      "properties": null,
+      "required": null
+     },
+     "container": {}
+    },
+    {
+     "name": "brave_news_search",
+     "parameters": {
+      "type": "",
+      "properties": null,
+      "required": null
+     },
+     "container": {}
+    },
+    {
+     "name": "brave_place_search",
+     "parameters": {
+      "type": "",
+      "properties": null,
+      "required": null
+     },
+     "container": {}
+    },
+    {
+     "name": "brave_summarizer",
+     "parameters": {
+      "type": "",
+      "properties": null,
+      "required": null
+     },
+     "container": {}
+    },
+    {
+     "name": "brave_video_search",
+     "parameters": {
+      "type": "",
+      "properties": null,
+      "required": null
+     },
+     "container": {}
+    },
+    {
+     "name": "brave_web_search",
+     "parameters": {
+      "type": "",
+      "properties": null,
+      "required": null
+     },
+     "container": {}
+    }
+   ],
+   "secrets": [
+    {
+     "name": "brave.api_key",
+     "env": "BRAVE_API_KEY",
+     "example": "YOUR_API_KEY_HERE",
+     "description": "See [Getting an API key](https://github.com/brave/brave-search-mcp-server?tab=readme-ov-file#getting-an-api-key)"
+    }
+   ],
+   "env": [
+    {
+     "name": "BRAVE_MCP_TRANSPORT",
+     "value": "stdio"
+    }
+   ],
+   "prompts": 0,
+   "resources": null,
+   "metadata": {
+    "pulls": 260395,
+    "stars": 26,
+    "githubStars": 1409,
+    "category": "search",
+    "tags": [
+     "brave",
+     "search"
+    ],
+    "license": "MIT License",
+    "owner": "brave"
+   },
+   "oauth": {}
+  }
+ }
+}

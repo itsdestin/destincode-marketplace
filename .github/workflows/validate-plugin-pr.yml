@@ -149,15 +149,23 @@ jobs:
             # Scan file contents for hardcoded API keys/tokens (common patterns).
             # WHY capture-then-test: `if grep | head` tests head's exit status
             # (always 0), which made this warning fire on EVERY plugin.
+            # BLOCKING, not a warning. Until 2026-08-30 this printed ::warning:: and
+            # left FOUND_SECRETS alone, so a live token in a file's CONTENT passed CI
+            # while a secret-looking FILENAME correctly failed it. Patterns are kept in
+            # step with scripts/catalog/lib/capabilities.mjs HARDCODED_KEY_RE, which
+            # flags the same shapes as a "Caution" finding on the public listing —
+            # the two must not disagree about what counts as a leaked key.
             MATCHES=$(grep -rl \
-                -e 'sk-[a-zA-Z0-9]\{20,\}' \
+                -e 'sk-[a-zA-Z0-9_-]\{20,\}' \
                 -e 'AKIA[A-Z0-9]\{16\}' \
-                -e 'ghp_[a-zA-Z0-9]\{36\}' \
-                -e 'gho_[a-zA-Z0-9]\{36\}' \
+                -e 'ghp_[a-zA-Z0-9]\{30,\}' \
+                -e 'gho_[a-zA-Z0-9]\{30,\}' \
+                -e 'xox[baprs]-[a-zA-Z0-9-]\{10,\}' \
                 "$PLUGIN_DIR" 2>/dev/null | head -3)
             if [ -n "$MATCHES" ]; then
               echo "$MATCHES"
-              echo "::warning::Plugin '$id' may contain hardcoded API keys — please review"
+              echo "::error::Plugin '$id' contains what looks like a hardcoded API key — remove it before submitting"
+              FOUND_SECRETS=1
             fi
           done
 

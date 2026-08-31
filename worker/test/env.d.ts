@@ -10,6 +10,9 @@ declare module "cloudflare:test" {
     KNOWN_DEV_DEVICES?: string;
     PRESENCE: DurableObjectNamespace;
     SYNC_HUB: DurableObjectNamespace;
+    CATALOG_INGEST_TOKEN?: string;
+    CATALOG_ENABLED?: string;
+    CATALOG_KV?: KVNamespace;
   }
 }
 export {};

@@ -65,6 +65,13 @@ describe("CORS — public read endpoints", () => {
     }
   });
 
+  it("GET /catalog and GET /catalog/:id accept any origin", async () => {
+    for (const p of ["/catalog", "/catalog/some-id", "/catalog/some-bundle/some-member"]) {
+      const res = await SELF.fetch(`https://test.local${p}`, { headers: { Origin: "https://nowhere.example" } });
+      expect(res.headers.get("access-control-allow-origin")).toBe("*");
+    }
+  });
+
   it("a THREE-segment comment path is not a public read — it falls through to strict", async () => {
     // Guards the `parts.length <= 2` bound: an arbitrarily deep path must not
     // inherit the wildcard CORS the two known shapes get.

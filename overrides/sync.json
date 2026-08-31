@@ -1,9 +1,0 @@
-{
-  "tagline": "Cross-device sync — now built into the YouCoded app.",
-  "tags": [
-    "automation",
-    "git"
-  ],
-  "audience": "developer",
-  "longDescription": "Cross-device sync used to be a standalone skill but is now built directly into the YouCoded app — no plugin to install. Open the app, go to Settings → Sync, and pick one of the built-in backends (Google Drive via rclone, GitHub via a private repo, or iCloud via the native folder). The app handles upload/download/conflict resolution automatically on every session start and end.\n\nIf you're using Claude Code standalone without the YouCoded app and need sync, the legacy skill lived inside `youcoded-core` before being folded into the app; that repo is being deprecated. Use the app for the best experience."
-}

@@ -1,0 +1,122 @@
+[
+ {
+  "id": "apple-services",
+  "type": "plugin",
+  "displayName": "Apple Services",
+  "description": "Calendar, Reminders, Contacts, Notes, Mail, and iCloud Drive — one setup. macOS only.",
+  "category": "integrations",
+  "author": "YouCoded",
+  "tags": [],
+  "version": "0.1.0",
+  "publishedAt": "2026-08-28T00:00:00Z",
+  "sourceMarketplace": "youcoded",
+  "sourceType": "local",
+  "sourceRef": "apple-services",
+  "repoUrl": null,
+  "components": {
+   "skills": [
+    "apple-calendar",
+    "apple-calendar-agenda",
+    "apple-calendar-create",
+    "apple-contacts",
+    "apple-contacts-find",
+    "apple-mail",
+    "apple-mail-search",
+    "apple-mail-send",
+    "apple-notes",
+    "apple-notes-search",
+    "apple-notes-write",
+    "apple-reminders",
+    "apple-reminders-add",
+    "apple-reminders-list",
+    "icloud-drive"
+   ],
+   "hooks": [],
+   "commands": [
+    "apple-services-setup"
+   ],
+   "agents": [],
+   "mcpServers": [],
+   "hasHooksManifest": false,
+   "hasMcpConfig": false
+  }
+ },
+ {
+  "id": "agentforce-adlc",
+  "type": "plugin",
+  "displayName": "Agentforce Adlc",
+  "description": "Agentforce Agent Development Life Cycle — author, discover, scaffold, deploy, test, and optimize .agent files",
+  "category": "development",
+  "author": "Anthropic",
+  "tags": [],
+  "version": "1.0.0",
+  "publishedAt": "2026-08-06T00:00:00Z",
+  "sourceMarketplace": "anthropic",
+  "sourceType": "url",
+  "sourceRef": "https://github.com/SalesforceAIResearch/agentforce-adlc.git",
+  "sourceSha": "d16d14ac7f817336e21bf9392cf51b6cac6194d8",
+  "repoUrl": "https://github.com/SalesforceAIResearch/agentforce-adlc",
+  "components": {
+   "skills": [
+    "agentforce-generate",
+    "agentforce-observe",
+    "agentforce-test"
+   ],
+   "hooks": [],
+   "commands": [],
+   "agents": [
+    "adlc-author",
+    "adlc-engineer",
+    "adlc-orchestrator",
+    "adlc-qa"
+   ],
+   "mcpServers": [],
+   "hasHooksManifest": false,
+   "hasMcpConfig": false
+  }
+ },
+ {
+  "id": "honeycomb",
+  "type": "plugin",
+  "displayName": "Honeycomb",
+  "description": "Skills, agents, and workflows for Honeycomb observability — query patterns, production investigations, SLOs, OpenTelemetry instrumentation, and Beeline migration. Designed to complement the Honeycomb MCP server.",
+  "category": "monitoring",
+  "author": "Honeycomb",
+  "tags": [],
+  "version": "1.0.0",
+  "publishedAt": "2026-08-06T00:00:00Z",
+  "sourceMarketplace": "anthropic",
+  "sourceType": "git-subdir",
+  "sourceRef": "https://github.com/honeycombio/agent-skill.git",
+  "sourceSubdir": "honeycomb",
+  "sourceSha": "189553c8a879cfaaf206ba9cc68c1b2117d12a76",
+  "sourceGitRef": "main",
+  "repoUrl": "https://www.honeycomb.io",
+  "components": {
+   "skills": [
+    "beeline-migration",
+    "create-honeycomb-board",
+    "metrics-queries",
+    "observability-fundamentals",
+    "otel-genai-instrumentation",
+    "otel-instrumentation",
+    "otel-migration",
+    "production-investigation",
+    "query-patterns",
+    "slos-and-triggers",
+    "verify-recent-trace"
+   ],
+   "hooks": [],
+   "commands": [
+    "honeycomb-setup"
+   ],
+   "agents": [
+    "honeycomb-investigator",
+    "instrumentation-advisor"
+   ],
+   "mcpServers": [],
+   "hasHooksManifest": false,
+   "hasMcpConfig": true
+  }
+ }
+]

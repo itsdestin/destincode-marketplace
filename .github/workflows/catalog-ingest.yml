@@ -1,0 +1,78 @@
+name: Catalog ingest
+
+on:
+  # Hourly is the only trigger. There is deliberately NO `push` trigger on
+  # index.json: the job that rebuilds it (validate-plugin-pr.yml → rebuild)
+  # commits with `[skip ci]` in the message, and GitHub skips every workflow for
+  # such a commit — so a push trigger would look right and never once fire.
+  # A merged plugin PR therefore appears within the hour, which is the promise.
+  schedule:
+    - cron: "13 * * * *"
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "one source (blank = all)"
+        required: false
+        default: ""
+      force_rescan:
+        description: "re-read every file, ignoring stored commits"
+        type: boolean
+        default: false
+      allow_mass_retire:
+        description: "let a run delist >20% of a source (a REAL bulk removal upstream)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: catalog-ingest
+  cancel-in-progress: false
+
+# WHO NOTICES WHEN THIS BREAKS.
+# `build.mjs` exits non-zero when any source errors, is refused by the retire guard, or
+# produces zero rows — so a broken scraper turns this run red and GitHub emails the repo
+# owner about a failed scheduled workflow. That is the alarm; there is no other one, which
+# is why the script must never swallow a bad source into a green run.
+# The hole it does not cover: GitHub disables `schedule:` triggers on a repository with
+# 60 days of no activity, silently. A dead cron produces no failures at all, just a
+# catalog frozen at its last good hour. `GET /admin/catalog/health` is how a human
+# checks; it is also the thing to wire into the admin dashboard if this repo ever goes
+# quiet for a season. (Note: this is the FIRST scheduled workflow in this repo — verified
+# 2026-08-30, no other workflow has a `schedule:` key — so that 60-day rule has never
+# applied here before and nobody has had reason to learn it.)
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    # A steady-state run is minutes: ~420 GitHub API calls and a few dozen raw
+    # file downloads, because unchanged entries are skipped. 30 minutes is the
+    # ceiling for a --force-rescan; if a NORMAL run approaches it, the skip logic
+    # has broken — investigate, do not raise this.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+      # Unquoted glob on purpose: the SHELL expands it, so node receives explicit
+      # filenames and this works on every Node version. `node --test <dir>` works
+      # only up to Node 20 (Node 21+ resolves a bare directory as a module and
+      # fails), and a QUOTED glob works only on Node 21+. The expanded form is the
+      # one that cannot break when this runner's Node is bumped.
+      - run: node --test scripts/catalog/test/*.test.mjs
+      - name: Ingest
+        env:
+          CATALOG_INGEST_TOKEN: ${{ secrets.MARKETPLACE_CATALOG_INGEST_TOKEN }}
+          # 1,000 API requests/hour per repository for Actions' GITHUB_TOKEN (not
+          # 5,000 — that is a personal access token). http.mjs stops at 200 left.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RESCAN=""; if [ "${{ inputs.force_rescan }}" = "true" ]; then RESCAN="--force-rescan"; fi
+          MASS=""; if [ "${{ inputs.allow_mass_retire }}" = "true" ]; then MASS="--allow-mass-retire"; fi
+          SRC=""; if [ -n "${{ inputs.source }}" ]; then SRC="--source ${{ inputs.source }}"; fi
+          node scripts/catalog/build.mjs $SRC $RESCAN $MASS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: catalog-report
+          path: catalog-report.json
+          retention-days: 14

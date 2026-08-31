@@ -30,6 +30,18 @@ export interface Env {
   // so eviction is reachable in a test run; production omits it and uses the
   // generous in-code rollout default (presence-room.ts STALE_DEFAULT_MS).
   PRESENCE_STALE_MS?: string;
+  // Shared secret the catalog-ingest GitHub Action presents on
+  // POST /admin/catalog/*. Set by CI (wrangler secret put); [env.test.vars]
+  // carries a fixed test value. Empty/absent -> those routes answer 503.
+  CATALOG_INGEST_TOKEN?: string;
+  // Kill switch for GET /catalog. "0" -> 503, which both clients already handle by
+  // falling back to index.json. A bad ingest run reaches every device within the
+  // hour; this is the way to stop it with a commit instead of a code change.
+  CATALOG_ENABLED?: string;
+  // Where the pre-built catalog object lives. OPTIONAL on purpose: GET /catalog
+  // falls back to assembling the body out of D1 when the namespace is absent or
+  // empty, so an unprovisioned binding degrades to slower, never to broken.
+  CATALOG_KV?: KVNamespace;
 }
 
 // NOTE: full-row interfaces (UserRow/IdentityRow/SessionRow/RatingRow) used to

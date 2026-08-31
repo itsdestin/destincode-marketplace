@@ -5,7 +5,7 @@
 //      CATALOG_HOST (default https://wecoded-marketplace-api.destinj101.workers.dev)
 import fs from "node:fs";
 import { createWorkerClient } from "./lib/worker.mjs";
-import { CATALOG_SOURCES } from "./lib/entry.mjs";
+import { destinationsOf, unknownSourceMessage } from "./lib/entry.mjs";
 
 const args = new Set(process.argv.slice(2));
 const pick = (flag) => { const i = process.argv.indexOf(flag); return i >= 0 ? process.argv[i + 1] : undefined; };
@@ -30,7 +30,12 @@ const report = { runId, sources: {} };
 const names = only ? [only] : Object.keys(SOURCES);
 
 for (const name of names) {
-  if (!SOURCES[name]) throw new Error(`unknown source ${name}; known: ${CATALOG_SOURCES.join(", ")}`);
+  // The list we check against and the list we PRINT must be the same list. They were not:
+  // the message was built from CATALOG_SOURCES (where the rows are SENT) while the check ran
+  // against SOURCES (the collectors that can be RUN), so `--source anthropic` was rejected by
+  // a sentence that named `anthropic` as known. unknownSourceMessage() names the collectors
+  // and points `anthropic` at the `wecoded` collector that produces it.
+  if (!SOURCES[name]) throw new Error(unknownSourceMessage(name, Object.keys(SOURCES)));
   const started = Date.now();
   try {
     const { collect } = await SOURCES[name]();
@@ -39,7 +44,9 @@ for (const name of names) {
     // compares values to skip re-reading unchanged repos, and this loop uses the KEY SET
     // to work out what to retire. --force-rescan blanks the values but keeps the keys —
     // a full re-read must still know what exists.
-    const workerSources = name === "wecoded" ? ["wecoded", "anthropic"] : [name];
+    // Derived from the one collector->destination map, so this and the error message above
+    // can never disagree about which collector fills `anthropic`.
+    const workerSources = destinationsOf(name);
     const knownBySrc = {};
     for (const src of workerSources) knownBySrc[src] = client ? await client.shas(src) : {};
     const known = forceRescan ? {} : Object.assign({}, ...Object.values(knownBySrc));

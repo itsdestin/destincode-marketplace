@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { slug, licenseToSpdx, makeEntry } from "../lib/entry.mjs";
+import { slug, licenseToSpdx, makeEntry, destinationsOf, unknownSourceMessage } from "../lib/entry.mjs";
 
 test("slug is installer-safe", () => {
   assert.equal(slug("ai.agenttrust/mcp-server"), "ai-agenttrust-mcp-server");
@@ -29,4 +29,28 @@ test("makeEntry emits the index.json shape plus catalog", () => {
   assert.equal(e.catalog.license, "MIT");
   assert.equal(e.publishedAt, undefined);   // never "today" — the Worker stamps first-seen; a daily-changing value would defeat its write-skip
   assert.equal(e.category, "development");
+});
+
+// The collectors build.mjs can actually run. Kept literal here on purpose: if a collector is
+// added or renamed, this test is where the rejection message gets re-checked against it.
+const COLLECTORS = ["wecoded", "docker", "awesome-copilot", "cursorrules"];
+
+test("a rejected --source never names the value it just rejected", () => {
+  // The bug: the message was built from the DESTINATION list, so `--source anthropic` failed
+  // with "...known: wecoded, anthropic, ..." — calling the value valid while refusing it.
+  const msg = unknownSourceMessage("anthropic", COLLECTORS);
+  assert.ok(!/collectors are:[^.]*\banthropic\b/.test(msg), `still lists anthropic as runnable: ${msg}`);
+  assert.match(msg, /"anthropic" is a catalog destination, not a collector/);
+  assert.match(msg, /produced by the "wecoded" collector, so run --source wecoded/);
+});
+
+test("a genuinely unknown --source just names the collectors", () => {
+  const msg = unknownSourceMessage("nope", COLLECTORS);
+  assert.equal(msg, 'unknown --source "nope"; collectors are: wecoded, docker, awesome-copilot, cursorrules.');
+});
+
+test("every collector has at least one destination, and wecoded feeds anthropic", () => {
+  // Guards the derivation build.mjs uses to decide where a collector's rows are sent.
+  assert.deepEqual(destinationsOf("wecoded"), ["wecoded", "anthropic"]);
+  for (const c of COLLECTORS) assert.ok(destinationsOf(c).length > 0, `${c} emits nowhere`);
 });

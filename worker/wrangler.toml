@@ -41,6 +41,26 @@ new_sqlite_classes = ["SyncGroupRoom"]
 # version N is the dominant client. Until then, leave empty — analytics
 # queries will use a 1970 fallback so all post-deploy rows pass through.
 CUTOVER_TIMESTAMP = ""
+# Kill switch for GET /catalog. "0" makes it answer 503, which both apps already
+# handle by falling back to index.json — the way to stop a bad ingest run from
+# reaching every device without writing and deploying code under pressure.
+CATALOG_ENABLED = "1"
+
+# Where GET /catalog serves from: one pre-built object written at the end of an
+# ingest run that changed something (src/catalog/publish.ts), instead of
+# re-assembling ~5,000 D1 rows on every request.
+#
+# !! PLACEHOLDER IDS !! These MUST be replaced before this branch merges, or the
+# deploy fails on an unknown namespace id. Run, in this directory:
+#     npx wrangler kv namespace create CATALOG
+#     npx wrangler kv namespace create CATALOG --preview
+# and paste the two ids it prints below. Tests are unaffected either way —
+# vitest-pool-workers/miniflare provisions a local KV by BINDING NAME and never
+# looks at the id.
+[[kv_namespaces]]
+binding = "CATALOG_KV"
+id = "REPLACE_ME_CATALOG_KV_ID"
+preview_id = "REPLACE_ME_CATALOG_KV_PREVIEW_ID"
 
 [env.test]
 # Test environment inherits config but omits AI binding — vitest-pool-workers /
@@ -60,6 +80,13 @@ bindings = [
   { name = "SYNC_HUB", class_name = "SyncGroupRoom" },
 ]
 
+# Env config is NOT inherited, so the catalog KV binding is mirrored here too —
+# without it env.CATALOG_KV is undefined in tests and only the D1 fallback runs.
+[[env.test.kv_namespaces]]
+binding = "CATALOG_KV"
+id = "REPLACE_ME_CATALOG_KV_ID"
+preview_id = "REPLACE_ME_CATALOG_KV_PREVIEW_ID"
+
 [env.test.vars]
 GH_CLIENT_ID = "test"
 GH_CLIENT_SECRET = "test"
@@ -77,6 +104,11 @@ KNOWN_DEV_DEVICES = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 # Presence staleness threshold override so eviction is reachable inside a test
 # run — production uses the generous in-code default (see presence-room.ts).
 PRESENCE_STALE_MS = "800"
+# The ingest gate's secret, fixed for tests (production gets it from CI as a
+# wrangler secret). CATALOG_ENABLED mirrors the top-level var so the kill switch
+# is off in tests.
+CATALOG_INGEST_TOKEN = "test-ingest-token"
+CATALOG_ENABLED = "1"
 
 # Production runtime config: GH_CLIENT_ID, GH_CLIENT_SECRET, and ADMIN_USER_IDS
 # are injected as secrets by CI (see .github/workflows/worker-deploy.yml).

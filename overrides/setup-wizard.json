@@ -1,9 +1,0 @@
-{
-  "tagline": "First-time setup, guided.",
-  "tags": [
-    "automation",
-    "plugin"
-  ],
-  "audience": "general",
-  "longDescription": "A pure-CLI fallback first-run wizard for people using `youcoded-core` directly in Claude Code without the YouCoded app. Walks you through three short questions — name, comfort level, sync backend — and writes the result to `~/.claude/toolkit-state/config.json`. That config then drives the rest of the plugin's behavior.\n\nMost people don't need this because the YouCoded app runs its own onboarding (with curated package selection, plugin registration, and hooks reconciliation built in). This skill exists for the users who installed `youcoded-core` standalone via `git clone` and need a graceful first-run experience. Additive and non-destructive — never overwrites existing config without permission."
-}

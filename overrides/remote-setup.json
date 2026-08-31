@@ -1,9 +1,0 @@
-{
-  "tagline": "Set up remote access from your phone.",
-  "tags": [
-    "automation",
-    "plugin"
-  ],
-  "audience": "general",
-  "longDescription": "Walks you through enabling remote access to YouCoded from your phone (or any other device) in one conversation. Installs Tailscale if you don't have it, runs the auth flow, sets a remote-access password, and confirms everything works — explained in plain language for non-technical users, with no \"open a terminal and run this\" handoffs. Claude does the work; you just sign in to Tailscale when the browser pops up.\n\nBy the end you'll have YouCoded reachable at a stable Tailscale URL on any device on your tailnet, which means full chat + terminal access from your phone over an encrypted WireGuard tunnel. Idempotent — safe to re-run if you want to change the password or move to a new device."
-}

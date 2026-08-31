@@ -1,8 +1,0 @@
-{
-  "tagline": "Verify your YouCoded install is healthy.",
-  "tags": [
-    "automation"
-  ],
-  "audience": "developer",
-  "longDescription": "A lightweight diagnostic command — verifies that your YouCoded plugins are installed, their hooks are reconciled into your Claude Code settings, and the core dependencies are present. Run it after troubleshooting an issue, after upgrading the app, or any time something feels off and you want to confirm the foundation is healthy before going deeper.\n\nUnlike `/diagnose` (which is the full deep-scan), `/health` is a quick yes/no check meant to fit on one screen — you'll know in seconds whether everything is in order. Reports specific failures with the exact command to fix each one. Read-only; never modifies your settings."
-}

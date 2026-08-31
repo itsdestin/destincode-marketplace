@@ -2,9 +2,11 @@
 // ingest job in scripts/catalog/. Rows are whole SkillEntry objects; the app
 // renders entry.catalog untouched.
 import { Hono } from "hono";
+import type { Context } from "hono";
 import type { HonoEnv } from "../types";
 import { requireIngestToken } from "./auth";
-import { badRequest } from "../lib/errors";
+import { badRequest, notFound } from "../lib/errors";
+import { validateId } from "../lib/validate";
 import { parseJsonBody } from "../lib/parse-json";
 import { requireAuth } from "../auth/middleware";
 import { requireAdminAccount } from "../auth/admin";
@@ -245,3 +247,72 @@ catalogRoutes.get("/admin/catalog/health", requireAuth, async (c) => {
   ).all();
   return c.json({ version: meta?.version ?? 0, updatedAt: meta?.updated_at ?? 0, sources: results });
 });
+
+/** Kill switch — see wrangler.toml [vars] CATALOG_ENABLED. Exported so a test can
+ *  drive the branch: cloudflare:test snapshots env at worker start. */
+export function catalogDisabled(env: { CATALOG_ENABLED?: string }): boolean {
+  return env.CATALOG_ENABLED === "0";
+}
+
+// GET /catalog — everything the app shows.
+//
+// Two things in here are load-bearing, and both are about cost, not speed:
+//
+// 1. THE ETAG COMES FROM ONE ROW, AND THE 304 IS ANSWERED BEFORE ANY CATALOG ROW IS
+//    READ. The obvious version — read the rows, derive an ETag from them, then maybe
+//    reply 304 — makes the "nothing changed" answer cost exactly as much database work
+//    as sending the whole several-MB payload, which defeats the entire point. D1's free
+//    tier allows 5 M row-reads/day; a full catalog read is ~5,000 of them. That is a few
+//    hundred client refreshes a day for the whole user base if every refresh pays full
+//    price, and both clients refresh hourly. With the version row, an unchanged refresh
+//    costs ONE row-read and the budget stops being the binding constraint.
+// 2. KEYSET PAGING (`id > last`), NEVER OFFSET. D1 bills rows SCANNED, and OFFSET
+//    re-scans everything it skips: 5,000 rows in pages of 500 costs ~27,500 row-reads
+//    with OFFSET and 5,000 with a keyset.  Same answer, five times the bill.
+//
+// The stored JSON is also CONCATENATED, not parsed and re-serialised: at a few thousand
+// rows the naive JSON.parse-then-c.json costs megabytes of pointless work per request.
+//
+// (All of this exists because *.workers.dev is not served from Cloudflare's edge cache.
+// On a custom domain the cache would absorb these repeats before they ever reach us —
+// see the ROADMAP entry. Until then the Worker is the cache.)
+catalogRoutes.get("/catalog", async (c) => {
+  if (catalogDisabled(c.env)) {
+    return c.text("catalog temporarily unavailable", 503);
+  }
+  const meta = await c.env.DB.prepare("SELECT version, updated_at FROM catalog_meta WHERE id = 'v'")
+    .first<{ version: number; updated_at: number }>();
+  const etag = `"cat-${meta?.version ?? 0}"`;
+  c.header("Cache-Control", "public, max-age=300");
+  c.header("ETag", etag);
+  if (c.req.header("If-None-Match") === etag) return c.body(null, 304);
+
+  const parts: string[] = [];
+  let after = "";
+  for (;;) {
+    const { results } = await c.env.DB
+      .prepare("SELECT id, entry_json FROM catalog_items WHERE deprecated = 0 AND id > ? ORDER BY id LIMIT 500")
+      .bind(after)
+      .all<{ id: string; entry_json: string }>();
+    for (const r of results) parts.push(r.entry_json);
+    if (results.length < 500) break;
+    after = results[results.length - 1]!.id;
+  }
+  c.header("Content-Type", "application/json");
+  return c.body(`{"generated_at":${meta?.updated_at ?? 0},"entries":[${parts.join(",")}]}`);
+});
+
+async function oneEntry(c: Context<HonoEnv>, id: string) {
+  if (catalogDisabled(c.env)) return c.text("catalog temporarily unavailable", 503);
+  const row = await c.env.DB.prepare("SELECT entry_json FROM catalog_items WHERE id = ? AND deprecated = 0")
+    .bind(validateId(id, "catalog id")).first<{ entry_json: string }>();
+  if (!row) throw notFound("not found");
+  c.header("Cache-Control", "public, max-age=300");
+  c.header("Content-Type", "application/json");
+  return c.body(`{"entry":${row.entry_json}}`);
+}
+
+// Two-segment form FIRST — a bundle member's id is `<bundle>/<name>` and Hono's
+// `:id` never matches across a slash.
+catalogRoutes.get("/catalog/:bundle/:name", (c) => oneEntry(c, `${c.req.param("bundle")}/${c.req.param("name")}`));
+catalogRoutes.get("/catalog/:id", (c) => oneEntry(c, c.req.param("id")));

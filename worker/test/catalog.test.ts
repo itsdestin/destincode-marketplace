@@ -5,6 +5,7 @@ import { env, SELF } from "cloudflare:test";
 import { describe, it, expect, beforeEach } from "vitest";
 import { createTestAccount, issueTestSession } from "./helpers";
 import { entry, TOKEN } from "./catalog-fixtures";
+import { catalogDisabled } from "../src/catalog/routes";
 
 const post = (path: string, body: unknown) => SELF.fetch(`https://test.local${path}`, { method: "POST", headers: TOKEN, body: JSON.stringify(body) });
 const version = async () => (await env.DB.prepare("SELECT version FROM catalog_meta WHERE id = 'v'").first<{ version: number }>())!.version;
@@ -174,5 +175,82 @@ describe("catalog ingest routes", () => {
     expect(await shas()).toEqual({ a: "aaa1111:1", b: ":" });
     await post("/admin/catalog/finish", { source: "wecoded", run_id: "r1", retire: ["b"] });
     expect(await shas()).toEqual({ a: "aaa1111:1" });
+  });
+});
+
+describe("GET /catalog", () => {
+  beforeEach(async () => {
+    for (const t of ["catalog_items", "catalog_runs"]) await env.DB.prepare(`DELETE FROM ${t}`).run();
+  });
+
+  it("returns live rows only, with a 5-minute cache header and an ETag", async () => {
+    await post("/admin/catalog/upsert", { source: "docker", run_id: "r1", entries: [entry("shown"), entry("gone")] });
+    await post("/admin/catalog/finish", { source: "docker", run_id: "r1", retire: ["gone"] });
+    const res = await SELF.fetch("https://test.local/catalog");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("public, max-age=300");
+    expect(res.headers.get("etag")).toBeTruthy();
+    const body = await res.json<{ generated_at: number; entries: Array<{ id: string; catalog: unknown }> }>();
+    expect(body.entries.map((e) => e.id)).toEqual(["shown"]);
+    expect(body.entries[0]!.catalog).toBeTruthy();
+    expect(typeof body.generated_at).toBe("number");
+  });
+
+  it("answers 304 with an empty body when the client already has this version", async () => {
+    await post("/admin/catalog/upsert", { source: "docker", run_id: "r1", entries: [entry("a")] });
+    const first = await SELF.fetch("https://test.local/catalog");
+    const etag = first.headers.get("etag")!;
+    const again = await SELF.fetch("https://test.local/catalog", { headers: { "If-None-Match": etag } });
+    expect(again.status).toBe(304);
+    expect(await again.text()).toBe("");
+    // A new upsert moves the ETag, so the client fetches for real again.
+    await post("/admin/catalog/upsert", { source: "docker", run_id: "r2", entries: [entry("b")] });
+    const third = await SELF.fetch("https://test.local/catalog", { headers: { "If-None-Match": etag } });
+    expect(third.status).toBe(200);
+  });
+
+  it("the kill switch turns the catalog off without a code change", async () => {
+    // env is snapshotted at worker start, so drive the branch directly.
+    expect(catalogDisabled({ CATALOG_ENABLED: "0" })).toBe(true);
+    expect(catalogDisabled({ CATALOG_ENABLED: "1" })).toBe(false);
+    expect(catalogDisabled({})).toBe(false);
+  });
+
+  it("a bundle MEMBER id (with a slash) resolves", async () => {
+    await post("/admin/catalog/upsert", { source: "wecoded", run_id: "r1", entries: [
+      entry("superpowers/brainstorming", { catalog: { itemType: "skill", partOf: { id: "superpowers", displayName: "Superpowers" }, origin: { tier: "verified" }, scan: { status: "unchecked" }, capabilities: [] } }),
+    ] });
+    const res = await SELF.fetch("https://test.local/catalog/superpowers/brainstorming");
+    expect(res.status).toBe(200);
+    expect((await res.json<{ entry: { id: string } }>()).entry.id).toBe("superpowers/brainstorming");
+  });
+
+  it("answers 304 from the version row, without reading the catalog", async () => {
+    await post("/admin/catalog/upsert", { source: "docker", run_id: "r1", entries: [entry("a1")] });
+    const first = await SELF.fetch("https://test.local/catalog");
+    const etag = first.headers.get("etag")!;
+    expect(etag).toMatch(/^"cat-\d+"$/);
+    const again = await SELF.fetch("https://test.local/catalog", { headers: { "If-None-Match": etag } });
+    expect(again.status).toBe(304);
+    expect(await again.text()).toBe("");
+    // A write moves the version, so the same conditional request now gets the payload.
+    await post("/admin/catalog/upsert", { source: "docker", run_id: "r2", entries: [entry("a2")] });
+    const third = await SELF.fetch("https://test.local/catalog", { headers: { "If-None-Match": etag } });
+    expect(third.status).toBe(200);
+    expect(third.headers.get("etag")).not.toBe(etag);
+  });
+
+  it("returns more than one internal page", async () => {
+    const many = Array.from({ length: 500 }, (_, i) => entry(`e${String(i).padStart(3, "0")}`));
+    await post("/admin/catalog/upsert", { source: "docker", run_id: "r1", entries: many });
+    await post("/admin/catalog/upsert", { source: "docker", run_id: "r1", entries: [entry("e500"), entry("e501")] });
+    const body = await (await SELF.fetch("https://test.local/catalog")).json<{ entries: unknown[] }>();
+    expect(body.entries.length).toBe(502);
+  });
+
+  it("GET /catalog/:id returns one entry or 404", async () => {
+    await post("/admin/catalog/upsert", { source: "docker", run_id: "r1", entries: [entry("one")] });
+    expect((await (await SELF.fetch("https://test.local/catalog/one")).json<{ entry: { id: string } }>()).entry.id).toBe("one");
+    expect((await SELF.fetch("https://test.local/catalog/none")).status).toBe(404);
   });
 });

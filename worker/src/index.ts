@@ -47,7 +47,14 @@ const ALLOWED_ORIGINS = [
 const publicReadCors = cors({
   origin: "*",
   allowMethods: ["GET"],
-  allowHeaders: ["Content-Type"],
+  // If-None-Match/ETag are what make GET /catalog cheap: the client sends back the
+  // version it holds and gets an empty 304 instead of several megabytes. A browser
+  // cannot READ a response header it was not granted, so without exposeHeaders the
+  // remote web UI and the workbench would re-download the whole catalog every hour.
+  // (Desktop fetches from Electron's main process and Android from Kotlin — neither
+  // is subject to CORS, so this is for browser clients only.)
+  allowHeaders: ["Content-Type", "If-None-Match"],
+  exposeHeaders: ["ETag"],
   credentials: false,
 });
 
@@ -75,6 +82,13 @@ function isPublicReadPath(path: string): boolean {
   // `Origin: null`, so a miss here is a CORS block, not just a 404.
   if (path.startsWith("/comments/")) {
     const parts = path.slice("/comments/".length).split("/");
+    return parts.length <= 2 && parts.every((p) => p.length > 0);
+  }
+  // The catalog itself, and one listing out of it. Same two-segment allowance as
+  // /comments — a bundle member's id carries a slash.
+  if (path === "/catalog") return true;
+  if (path.startsWith("/catalog/")) {
+    const parts = path.slice("/catalog/".length).split("/");
     return parts.length <= 2 && parts.every((p) => p.length > 0);
   }
   return false;

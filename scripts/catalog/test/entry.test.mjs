@@ -54,3 +54,32 @@ test("every collector has at least one destination, and wecoded feeds anthropic"
   assert.deepEqual(destinationsOf("wecoded"), ["wecoded", "anthropic"]);
   for (const c of COLLECTORS) assert.ok(destinationsOf(c).length > 0, `${c} emits nowhere`);
 });
+
+// A bundle with a `.mcp.json` had its server's host counted twice — once by the
+// generic file scan (which sees the url in the file's raw text) and once by
+// mcpCapabilities (which parses the url). Neither producer can see the other's
+// output, so the de-duplication belongs at the single point every source's rows
+// pass through. Measured on the live catalog: 29 of 4,156 rows showed a repeated
+// "What this can do" line.
+test("makeEntry never lists the same capability twice, and keeps first-seen order", () => {
+  const e = makeEntry({
+    source: "wecoded", id: "x", itemType: "plugin", displayName: "X", origin: "youcoded",
+    scan: { status: "unchecked" },
+    capabilities: [
+      { kind: "shell", label: "Runs commands on your computer" },
+      { kind: "network", label: "Connects to the internet", detail: "adobe-creativity.adobe.io" },
+      { kind: "network", label: "Connects to the internet", detail: "adobe-creativity.adobe.io" },
+      { kind: "network", label: "Connects to the internet", detail: "example.com" },
+      { kind: "shell", label: "Runs commands on your computer" },
+    ],
+  });
+  assert.deepEqual(e.catalog.capabilities, [
+    { kind: "shell", label: "Runs commands on your computer" },
+    { kind: "network", label: "Connects to the internet", detail: "adobe-creativity.adobe.io" },
+    { kind: "network", label: "Connects to the internet", detail: "example.com" },
+  ]);
+  // Same label, different detail, is a DIFFERENT line and must survive.
+  const two = makeEntry({ source: "wecoded", id: "y", itemType: "plugin", displayName: "Y", origin: "youcoded", scan: { status: "unchecked" },
+    capabilities: [{ kind: "secret", label: "Needs a Y key", detail: "A_TOKEN" }, { kind: "secret", label: "Needs a Y key", detail: "B_TOKEN" }] });
+  assert.equal(two.catalog.capabilities.length, 2);
+});

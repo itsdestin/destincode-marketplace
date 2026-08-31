@@ -1,0 +1,4 @@
+
+# Catalog ingest run artifacts (scripts/catalog/build.mjs) — never committed
+catalog-dry-run-*.json
+catalog-report.json

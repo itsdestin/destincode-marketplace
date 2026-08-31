@@ -105,6 +105,9 @@ KNOWN_DEV_DEVICES = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 # Presence staleness threshold override so eviction is reachable inside a test
 # run — production uses the generous in-code default (see presence-room.ts).
 PRESENCE_STALE_MS = "800"
+# Head-to-head attestation window override, same reason as PRESENCE_STALE_MS:
+# the 2-minute production default is unreachable in a test run.
+GAME_RESULT_TIMEOUT_MS = "600"
 # The ingest gate's secret, fixed for tests (production gets it from CI as a
 # wrangler secret). CATALOG_ENABLED mirrors the top-level var so the kill switch
 # is off in tests.

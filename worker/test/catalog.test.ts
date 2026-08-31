@@ -319,3 +319,53 @@ describe("a re-scan that found nothing new is not a change", () => {
     expect(await version()).toBeGreaterThan(before);
   });
 });
+
+describe("a star count is not a catalog change", () => {
+  beforeEach(async () => {
+    for (const t of ["catalog_items", "catalog_runs"]) await env.DB.prepare(`DELETE FROM ${t}`).run();
+  });
+
+  // WHY THIS EXISTS. Same failure as the `checkedAt` one above, different field. A
+  // snapshot of GET /catalog taken either side of one ingest run was diffed field by
+  // field: 97 rows differed and the ONLY field that had moved was `catalog.stars` —
+  // e.g. agent-sdk-dev 35664 -> 35665, one new GitHub star. Every one of those rows was
+  // rewritten, which bumped catalog_meta.version, which IS the ETag, so the next client
+  // to ask got a 4.6 MB 200 instead of a free 304 — 24 full re-downloads per device per
+  // day, Android over mobile data. And nothing renders the number: neither the desktop
+  // renderer nor the Android app reads `catalog.stars`.
+  const starred = (stars: number, extra: Record<string, unknown> = {}) => entry("starry", { catalog: {
+    itemType: "plugin", origin: { tier: "community" }, scan: { status: "unchecked" }, capabilities: [], stars,
+  }, ...extra });
+
+  it("a changed star count alone writes nothing and holds the ETag", async () => {
+    await post("/admin/catalog/upsert", { source: "wecoded", run_id: "r1", entries: [starred(35664)] });
+    const before = await version();
+    const etagBefore = (await SELF.fetch("https://test.local/catalog")).headers.get("etag");
+
+    // The next hour: the repo gained one GitHub star and nothing else moved.
+    const res = await post("/admin/catalog/upsert", { source: "wecoded", run_id: "r2", entries: [starred(35665)] });
+    expect(await res.json()).toEqual({ ok: true, upserted: 0, unchanged: 1 });
+    expect(await version()).toBe(before);
+    expect((await SELF.fetch("https://test.local/catalog")).headers.get("etag")).toBe(etagBefore);
+    expect((await stored("starry")).catalog.stars).toBe(35664);      // the stored count is kept
+  });
+
+  // Stars must NOT freeze forever: any row that genuinely changed takes the fresh count,
+  // so the number stays accurate everywhere except rows nothing else ever touches.
+  it("a star change alongside a real change writes, and stores the NEW count", async () => {
+    await post("/admin/catalog/upsert", { source: "wecoded", run_id: "r1", entries: [starred(100)] });
+    const before = await version();
+    const res = await post("/admin/catalog/upsert", { source: "wecoded", run_id: "r2", entries: [starred(101, { description: "now describes itself" })] });
+    expect(await res.json()).toEqual({ ok: true, upserted: 1, unchanged: 0 });
+    expect(await version()).toBeGreaterThan(before);
+    const row = await stored("starry");
+    expect(row.description).toBe("now describes itself");
+    expect(row.catalog.stars).toBe(101);
+  });
+
+  it("a first insert stores the star count it was given", async () => {
+    const res = await post("/admin/catalog/upsert", { source: "wecoded", run_id: "r1", entries: [starred(7)] });
+    expect(await res.json()).toEqual({ ok: true, upserted: 1, unchanged: 0 });
+    expect((await stored("starry")).catalog.stars).toBe(7);
+  });
+});

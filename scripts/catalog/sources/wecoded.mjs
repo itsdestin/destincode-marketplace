@@ -46,15 +46,50 @@ export const treeIsReadable = (tree) => Array.isArray(tree?.tree);
  *  "local"` carry a relative `sourceRef` ("./plugins/agent-sdk-dev") and only their
  *  repoUrl names a repository. */
 export function githubRepoUrl(entry) {
+  // An Anthropic `local` row's files live in ANTHROPIC's repository, and 17 of the 53
+  // name no repository at all, so this is where they get their HEAD, stars and licence.
+  // See ANTHROPIC_PLUGINS_REPO below for the evidence that this is the right repo.
+  if (anthropicLocalSubdir(entry)) return `https://github.com/${ANTHROPIC_PLUGINS_REPO}`;
   for (const url of [entry?.sourceRef, entry?.repoUrl]) if (parseRepo(url)) return url;
   return undefined;
 }
 
+/** Anthropic's plugin monorepo, and the folder inside it an entry points at.
+ *
+ *  WHY this exists: 53 rows in index.json are recorded `sourceType: "local"` with a
+ *  sourceRef like "./plugins/agent-sdk-dev". That path is relative to ANTHROPIC's
+ *  repository, not to ours, so reading it out of this checkout finds nothing and all
+ *  53 listings said "Not checked" forever — 53 of the 54 unchecked bundles.
+ *
+ *  WHY the repo name is pinned here rather than read off each row: only 36 of the 53
+ *  carry a GitHub repoUrl at all (23 of those spell it "claude-plugins-public", which
+ *  GitHub redirects to the same repository); the other 17 — the LSP plugins and the
+ *  messaging ones — carry `repoUrl: null`. Checked on 2026-08-31 against
+ *  anthropics/claude-plugins-official at commit ed40410: ALL 53 sourceRef paths exist
+ *  there as directories, and every one of the 36 repoUrls resolves to that same repo.
+ *
+ *  A path that is NOT in that repo makes fetchFiles report "could not read", so the
+ *  listing stays `unchecked` — never a clean bill of health for files nobody read. */
+export const ANTHROPIC_PLUGINS_REPO = OFFICIAL;
+export function anthropicLocalSubdir(entry) {
+  if (entry?.sourceType !== "local" || entry?.sourceMarketplace !== "anthropic") return null;
+  const ref = String(entry?.sourceRef ?? "").replace(/^\.\//, "").replace(/\/+$/, "");
+  if (!ref || ref.startsWith("/") || ref.split("/").includes("..")) return null;
+  return ref;
+}
+
 /** Files worth scanning for one plugin. Returns { ok, files } — ok=false means
  *  "could not read", which must surface as scan.status 'unchecked'. */
-export async function fetchFiles(entry, sha) {
+export async function fetchFiles(entry, sha, deps = {}) {
+  // The two network calls are injectable so the tests can drive this without a token
+  // or a network; production callers pass nothing and get the real ones.
+  const { github: gh = github, githubRaw: raw = githubRaw } = deps;
   const wanted = (p) => /^(\.mcp\.json|hooks\/hooks\.json|\.claude-plugin\/plugin\.json)$/.test(p) || (/^(scripts|hooks|bin)\//.test(p) && SCRIPT_EXT.test(p));
-  if (entry.sourceType === "local") {
+  // An Anthropic `local` row points into Anthropic's repo, not ours — read it from
+  // there. Our OWN local plugins (repoUrl: null, sourceMarketplace "youcoded") really
+  // do live in this checkout and are still read off disk.
+  const anthropicSubdir = anthropicLocalSubdir(entry);
+  if (entry.sourceType === "local" && !anthropicSubdir) {
     const dir = path.join(ROOT, entry.sourceRef);
     if (!fs.existsSync(dir)) return { ok: false, files: [] };
     const files = [];
@@ -62,16 +97,22 @@ export async function fetchFiles(entry, sha) {
     walk(dir);
     return { ok: true, files, sha: undefined };
   }
-  const gh = parseRepo(githubRepoUrl(entry));
-  if (!gh || !sha) return { ok: false, files: [] };
+  const repo = parseRepo(githubRepoUrl(entry));
+  if (!repo || !sha) return { ok: false, files: [] };
+  const prefix = anthropicSubdir ? anthropicSubdir + "/" : (entry.sourceSubdir ? entry.sourceSubdir.replace(/\/$/, "") + "/" : "");
   try {
-    const tree = await github(`/repos/${gh.owner}/${gh.repo}/git/trees/${sha}?recursive=1`);
+    const tree = await gh(`/repos/${repo.owner}/${repo.repo}/git/trees/${sha}?recursive=1`);
     // Could not read the file list -> "unchecked", never a clean "checked". See treeIsReadable.
-    if (!treeIsReadable(tree)) return { ok: false, files: [], error: `no file list for ${gh.owner}/${gh.repo} at ${sha}` };
-    const prefix = entry.sourceSubdir ? entry.sourceSubdir.replace(/\/$/, "") + "/" : "";
-    const paths = tree.tree.filter((t) => t.type === "blob" && t.path.startsWith(prefix)).map((t) => t.path.slice(prefix.length)).filter(wanted).slice(0, MAX_FILES);
+    if (!treeIsReadable(tree)) return { ok: false, files: [], error: `no file list for ${repo.owner}/${repo.repo} at ${sha}` };
+    const under = tree.tree.filter((t) => t.path.startsWith(prefix));
+    // A subfolder that matches NOTHING in the tree is not "a folder with no scripts in
+    // it" — it is a folder we did not find (renamed, moved, or recorded wrong). Passing
+    // its empty file list to the scanner would find nothing wrong and stamp a clean bill
+    // of health on files nobody read. Same reason treeIsReadable exists.
+    if (prefix && !under.length) return { ok: false, files: [], error: `nothing under ${prefix} in ${repo.owner}/${repo.repo} at ${sha}` };
+    const paths = under.filter((t) => t.type === "blob").map((t) => t.path.slice(prefix.length)).filter(wanted).slice(0, MAX_FILES);
     const files = [];
-    for (const p of paths) files.push({ path: p, text: (await githubRaw(gh.owner, gh.repo, sha, prefix + p)).slice(0, MAX_BYTES) });
+    for (const p of paths) files.push({ path: p, text: (await raw(repo.owner, repo.repo, sha, prefix + p)).slice(0, MAX_BYTES) });
     return { ok: true, files, sha };
   } catch (e) {
     return { ok: false, files: [], error: String(e.message ?? e) };
@@ -103,16 +144,40 @@ export function repoFacts() {
   };
 }
 
-/** Member ids a bundle row implies — needed WITHOUT fetching anything, so a skipped
- *  bundle can report its members as seen too. Mirrors the `member(...)` calls below. */
-function memberIds(e) {
+/** The member rows a bundle implies: one per DISTINCT id, in declaration order
+ *  (skills, then specialists, then the connection). Used both to emit the rows and —
+ *  without fetching anything — to report a skipped bundle's members as still seen.
+ *
+ *  WHY the de-duplication: `claude-security` lists the name "claude-security" under
+ *  BOTH components.skills and components.agents, so this bundle implied two rows with
+ *  the same id, "claude-security/claude-security" — one typed "skill", one
+ *  "specialist". Both went into the same upsert, the last one written won, and which
+ *  one was last depended on where the 500-row batch boundary happened to fall, so the
+ *  listing's type flipped between runs. Measured on the live index.json 2026-08-31:
+ *  exactly 1 such collision among the 2,613 ids of the 302 live plugins.
+ *
+ *  WHY the first kind wins rather than a renamed second row: an id is the only handle
+ *  the app has on a listing, and inventing "…/claude-security-specialist" would
+ *  fabricate a member this bundle never declares under that name — and could itself
+ *  collide with a real one. Dropping the duplicate costs nothing a user can see: the
+ *  surviving row carries the same name and the bundle's "Adds 1 skill, 3 specialists
+ *  and 1 hook" line still counts every declared member. */
+function members(e) {
   const c = e.components ?? {};
-  return [
-    ...(c.skills ?? []).map((s) => `${e.id}/${s}`),
-    ...(c.agents ?? []).map((a) => `${e.id}/${a}`),
-    ...(((c.mcpServers ?? []).length || c.hasMcpConfig) ? [`${e.id}/connection`] : []),
-  ];
+  const out = [];
+  const seen = new Set();
+  const add = (itemType, name, displayName) => {
+    const id = `${e.id}/${name}`;
+    if (seen.has(id)) return;
+    seen.add(id);
+    out.push({ id, itemType, name, displayName });
+  };
+  for (const s of c.skills ?? []) add("skill", s, titleCase(s));
+  for (const a of c.agents ?? []) add("specialist", a, titleCase(a));
+  if ((c.mcpServers ?? []).length || c.hasMcpConfig) add("tool", "connection", `${e.displayName} (connection)`);
+  return out;
 }
+const memberIds = (e) => members(e).map((m) => m.id);
 
 export async function normalise(index, files = fetchFiles, repo = repoFacts(), known = {}) {
   const out = [];
@@ -157,7 +222,8 @@ export async function normalise(index, files = fetchFiles, repo = repoFacts(), k
     out.push(makeEntry({ ...base, id: e.id, itemType: "plugin", displayName: e.displayName, description: e.description, tagline: e.tagline, longDescription: e.longDescription,
       sourceType: e.sourceType, sourceRef: e.sourceRef, sourceSubdir: e.sourceSubdir, sourceSha: e.sourceSha, components: e.components,
       capabilities: caps, scan }));
-    const member = (itemType, name, displayName, description) => out.push(makeEntry({ ...base, id: `${e.id}/${name}`, itemType, displayName, description,
+    // Descriptions are deliberately EMPTY — see the note below.
+    for (const m of members(e)) out.push(makeEntry({ ...base, id: m.id, itemType: m.itemType, displayName: m.displayName, description: "",
       sourceType: e.sourceType, sourceRef: e.sourceRef, sourceSubdir: e.sourceSubdir, pluginName: e.id, partOf: { id: e.id, displayName: e.displayName }, capabilities: [], scan }));
     // Member descriptions are left EMPTY, not filled with "Part of <bundle>."
     // The card already shows a `Part of X` chip, and putting the bundle's name
@@ -166,10 +232,6 @@ export async function normalise(index, files = fetchFiles, repo = repoFacts(), k
     // near-identical cards. A blank description is honest and does not pollute
     // the search corpus. Real descriptions come from each SKILL.md's frontmatter
     // in the follow-up below.
-    const c = e.components ?? {};
-    for (const s of c.skills ?? []) member("skill", s, titleCase(s), "");
-    for (const a of c.agents ?? []) member("specialist", a, titleCase(a), "");
-    if ((c.mcpServers ?? []).length || c.hasMcpConfig) member("tool", "connection", `${e.displayName} (connection)`, "");
   }
   return { rows: out, skipped };
 }

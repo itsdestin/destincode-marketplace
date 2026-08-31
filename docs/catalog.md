@@ -63,15 +63,31 @@ and, if the result is byte-for-byte identical, writes nothing. *Why:* the databa
 100,000 row-writes a day. Rewriting every row hourly just to mark it "seen" would spend most of
 that on rows that did not change.
 
-> **The corollary that bites: no source may stamp a per-run value into a row that did not
-> change.** No `new Date()`, no run id, no "fetched at". If it does, every row differs every
-> hour, rule 3 never fires, and — worse — the catalog version moves, which changes the ETag,
-> which makes **every device re-download the whole multi-megabyte catalog every hour**.
-> This has already happened once: our own `local` plugins have no upstream commit to compare,
-> so their files are re-read every run and stamped with a fresh `scan.checkedAt`. That one
-> field made 71 rows differ hourly. The Worker's merge now keeps the stored `checkedAt` when
-> the status, findings and rule version are all identical — but a **new** source that stamps a
-> timestamp will reintroduce the bug, and nothing will alert you.
+> **The corollary that bites: no row may carry a value that moves on its own.** If one does,
+> rows differ every hour, rule 3 never fires, and — worse — the catalog version moves, which
+> changes the ETag, which makes **every device re-download the whole multi-megabyte catalog
+> every hour**, Android over mobile data.
+>
+> This has happened **twice**, and the second time is the one to learn from.
+>
+> **First, a synthetic stamp.** Our own `local` plugins have no upstream commit to compare, so
+> their files are re-read every run and stamped with a fresh `scan.checkedAt`. That one field
+> made 71 rows differ hourly.
+>
+> **Then a real one.** `catalog.stars` — a genuine GitHub star count, updated honestly from the
+> API. `agent-sdk-dev` went 35664 → 35665 and the row was rewritten. Snapshot-diffing
+> `GET /catalog` either side of one run showed **97 rows differing and `catalog.stars` as the
+> only field that moved**, on a value **neither the desktop app nor Android ever displays**.
+> After the fix the same experiment gave 1 differing row.
+>
+> **So the rule is not "don't stamp timestamps" — it is "nothing may drift faster than what a
+> user can see".** A star count, a download total, a "last pushed" date and a run id all break
+> it identically, and the legitimate-looking ones are the dangerous ones, because they survive
+> review. When you add a field, ask what moves it and how often. If it can move while nothing
+> a person would notice has changed, exclude it from the change comparison in
+> `mergeOntoStored`: keep the stored value, and take the incoming one only when the row already
+> differs for another reason. Nothing will alert you if you get this wrong — the symptom is a
+> bandwidth bill and a slow app, not an error.
 
 **4. Never mass-retire on one bad run.** Retirement is an explicit list of ids computed by the
 ingest, and the Worker **refuses** any run trying to delist more than a fifth of a source
@@ -102,9 +118,23 @@ Three states, and the difference matters:
 - **unchecked** — the files could **not** be read (rate limit, no repo, a mirrored listing we
   only hold metadata for). Never "checked" without having actually read the files.
 
-Roughly a fifth of bundles are `unchecked` today. 53 of those are Anthropic plugins recorded
-with a path inside *Anthropic's own* repository rather than ours, so there is nothing for us to
-fetch; teaching the fetcher to resolve them is a roadmap item.
+4 of the 302 bundles are `unchecked` today. It was 54 until 2026-08-31: 53 of those were
+Anthropic plugins recorded with a path inside *Anthropic's own* repository
+(`./plugins/agent-sdk-dev`) rather than ours, so there was nothing in our checkout to fetch.
+The fetcher now reads them from `anthropics/claude-plugins-official`, which was verified to
+hold all 53 of those paths.
+
+> **A subfolder that matches nothing in the tree is now `unchecked`, not `checked`.** This is
+> the same trap as the unreadable file list above, one level down: a `sourceSubdir` that is not
+> in the tree we fetched yields an *empty* file list, an empty list scans clean, and the
+> listing gets a clean bill of health for files nobody read. Found on the 2026-08-31 dry run:
+> the three `netsuite-*` plugins live on the branch `ai-plugins-dist`, but the ingest reads a
+> repository's **default** branch, where the folder `anthropic/netsuite-suitecloud` does not
+> exist — 0 matching paths on `master`, 8 on `ai-plugins-dist` — so all three (13 rows counting
+> their members) had been stamped "Likely safe" having read nothing. They now correctly report
+> `unchecked`. **The root cause is still open:** index.json records `sourceGitRef:
+> "ai-plugins-dist"` and the ingest ignores it, pinning every listing to its repo's default
+> branch. 4 entries name a non-default ref today.
 
 ## How a human checks it is still alive
 

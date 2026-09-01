@@ -117,8 +117,9 @@ feedbackRoutes.post("/comments", requireAuth, async (c) => {
   return c.json({ ok: true, id, hidden: hidden === 1 });
 });
 
-// GET /comments/<id> → { comments } — public, newest first, LIMIT 50, hidden
-// excluded. Wire names match GET /ratings (user_login / user_avatar_url) because
+// GET /comments/<id> → { comments, total } — public, newest first, LIMIT 50,
+// hidden excluded; `total` is the full visible count so the app can say when
+// the page is a cut. Wire names match GET /ratings (user_login / user_avatar_url) because
 // the app's CommentList already reads them.
 //
 // TWO routes, one handler: a bundle member's id is `<bundle>/<name>` (spec §1.4),
@@ -131,17 +132,30 @@ async function listComments(c: Context<HonoEnv>, pluginId: string) {
   if (!(await checkRateLimit(`comments-list:${ip}`, 60, 60))) {
     throw tooMany("too many requests");
   }
-  const { results } = await c.env.DB
-    .prepare(
-      `SELECT m.id, m.user_id, u.display_name, u.avatar_url, m.text, m.created_at
-       FROM comments m
-       JOIN users u ON u.id = m.user_id
-       WHERE m.plugin_id = ? AND m.hidden = 0
-       ORDER BY m.created_at DESC
-       LIMIT 50`
-    )
-    .bind(pluginId)
-    .all<{ id: string; user_id: string; display_name: string; avatar_url: string | null; text: string; created_at: number }>();
+  // `total` rides beside the page so the app can say "showing the 50 most
+  // recent of N" — before it, a thread of 80 simply stopped at 50 with nothing
+  // marking the cut, and the reader had no way to tell "this thread has 50
+  // comments" from "this thread is longer than I can see". A count is far
+  // cheaper than pagination and is all the app needs to be honest about the
+  // cap; older apps that only read `comments` are unaffected by the extra key.
+  // Both reads are independent, so they run together rather than in sequence.
+  const [{ results }, countRow] = await Promise.all([
+    c.env.DB
+      .prepare(
+        `SELECT m.id, m.user_id, u.display_name, u.avatar_url, m.text, m.created_at
+         FROM comments m
+         JOIN users u ON u.id = m.user_id
+         WHERE m.plugin_id = ? AND m.hidden = 0
+         ORDER BY m.created_at DESC
+         LIMIT 50`
+      )
+      .bind(pluginId)
+      .all<{ id: string; user_id: string; display_name: string; avatar_url: string | null; text: string; created_at: number }>(),
+    c.env.DB
+      .prepare("SELECT COUNT(*) AS n FROM comments WHERE plugin_id = ? AND hidden = 0")
+      .bind(pluginId)
+      .first<{ n: number }>(),
+  ]);
   const comments = results.map((row) => ({
     id: row.id,
     user_id: row.user_id,
@@ -150,7 +164,7 @@ async function listComments(c: Context<HonoEnv>, pluginId: string) {
     text: row.text,
     created_at: row.created_at,
   }));
-  return c.json({ comments });
+  return c.json({ comments, total: countRow?.n ?? comments.length });
 }
 
 feedbackRoutes.get("/comments/:bundle/:name", (c) =>

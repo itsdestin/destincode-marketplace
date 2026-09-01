@@ -1,6 +1,28 @@
-import { env, applyD1Migrations } from "cloudflare:test";
+import { env, applyD1Migrations, reset } from "cloudflare:test";
+import { beforeEach } from "vitest";
 
 await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
+
+// Vitest 4 + @cloudflare/vitest-pool-workers 0.20+ isolate storage per test FILE,
+// not per test — the `isolatedStorage` / `singleWorker` options are gone. Every
+// test in this suite was written against per-test isolation (a fresh D1, KV and
+// Durable Objects each `it`), and without it three of them read sibling tests'
+// leftovers: `SELECT COUNT(*) FROM friendships` saw 3 rows, GET /catalog served
+// a KV object a previous test had published. `reset()` is the integration's own
+// replacement — "deletes all data from all attached bindings" (D1, KV, DO
+// storage, and it tears the DO instances down) — so re-applying the migrations
+// afterwards gives each test exactly the empty schema it always had. Measured:
+// the full run is no slower than before (~11s for 304 tests).
+//
+// One visible side effect: workerd logs a handful of
+// `jsg.Error: Application called deleteAllDurableObjects()` lines when a test
+// leaves a PresenceRoom / SyncGroupRoom WebSocket open — that is the DO being
+// torn down under a live socket, which is exactly what the reset is for. Those
+// lines are noise, not failures; the test summary is the verdict.
+beforeEach(async () => {
+  await reset();
+  await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
+});
 
 // NOTE (verified 2026-08-28, by probing `c.env.AI` from inside a request): a
 // Workers AI stub CANNOT be injected from here. `[env.test]` omits the `[ai]`

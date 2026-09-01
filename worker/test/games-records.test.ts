@@ -146,9 +146,17 @@ describe("head-to-head attestation (§6.2)", () => {
     }
     expect(await matchRows(match)).toHaveLength(0);
 
+    // Settlement tells BOTH players. Listen for A's copy before B corroborates,
+    // the way the "agree" test does: the runtime does not promise that A's
+    // message is dispatched before B's, and if A's arrives after `rec` resolves,
+    // the `again` listener below would swallow the settlement (source
+    // "attested") instead of the retry's answer. Surfaced as a deterministic
+    // failure on workerd 1.2026xx (vitest-pool-workers 0.20+); the old runtime
+    // merely happened to deliver A first.
+    const recA = nextMessage(wsA, "game-record");
     const rec = nextMessage(wsB, "game-record");
     wsB.send(result("chess", match, a.userId, "loss"));
-    await rec;
+    await Promise.all([rec, recA]);
     expect(await matchRows(match)).toHaveLength(1);
 
     // A retry AFTER settlement is answered with the record already earned —

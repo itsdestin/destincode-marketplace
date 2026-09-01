@@ -143,7 +143,31 @@ describe("POST /comments + GET /comments/:plugin_id", () => {
 
   it("returns an empty list for an unknown plugin", async () => {
     const res = await SELF.fetch("https://test.local/comments/nothing-here");
-    expect(await res.json()).toEqual({ comments: [] });
+    expect(await res.json()).toEqual({ comments: [], total: 0 });
+  });
+
+  it("reports the full visible count beside the 50-row page, so a long thread can say it was cut", async () => {
+    const { account } = await seed("carol");
+    // 52 visible rows + 1 hidden: the page must hold exactly 50, `total` must
+    // count every VISIBLE row (52) and never the hidden one. Seeded straight
+    // into D1 — 53 POSTs would spend most of the test on the classifier path.
+    const stmt = env.DB.prepare(
+      "INSERT INTO comments (id, user_id, plugin_id, text, created_at, hidden) VALUES (?, ?, 'foo:bar', ?, ?, ?)"
+    );
+    const rows = [];
+    for (let i = 0; i < 52; i++) rows.push(stmt.bind(`c${i}`, account.userId, `comment ${i}`, 1_000_000 + i, 0));
+    rows.push(stmt.bind("hidden-one", account.userId, "held", 2_000_000, 1));
+    await env.DB.batch(rows);
+
+    const res = await SELF.fetch("https://test.local/comments/foo%3Abar");
+    expect(res.status).toBe(200);
+    const body = await res.json<{ comments: Array<{ text: string }>; total: number }>();
+    expect(body.comments).toHaveLength(50);
+    expect(body.total).toBe(52);
+    // Newest first, and the two oldest are the ones that fell off the page.
+    expect(body.comments[0]!.text).toBe("comment 51");
+    expect(body.comments.map((c) => c.text)).not.toContain("comment 0");
+    expect(body.comments.map((c) => c.text)).not.toContain("held");
   });
 
   it("reads a bundle MEMBER's thread — both the raw slash and a percent-encoded one", async () => {

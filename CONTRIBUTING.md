@@ -36,6 +36,20 @@ By opening a pull request to this repository, you certify that:
 
 If you can't agree to all four, please don't submit.
 
+## Developer Certificate of Origin
+
+Every commit in a pull request must carry a sign-off line:
+
+```
+Signed-off-by: Your Name <you@example.com>
+```
+
+`git commit -s` adds it for you, using the name and email in your git config. This is the [Developer Certificate of Origin](https://developercertificate.org/) — a one-line statement that you have the right to submit the work under the license that covers it.
+
+By signing off you confirm that your contribution — the plugin itself, any code, and any previews or other assets — is submitted under the Apache License 2.0 that covers this repository, and that you wrote it or otherwise have the right to submit it under that license (the same terms listed above). Some plugin directories carry their own `LICENSE` file (for example `civic-report/` and `wecoded-marketplace-publisher/`, both MIT); a contribution to one of those directories is accepted under that directory's LICENSE instead. There is no separate contributor agreement; the sign-off is the whole of it.
+
+If a commit is missing the sign-off, you'll be asked to add it before the PR is merged — `git commit --amend -s` fixes the last commit, and `git rebase --signoff` fixes a whole branch.
+
 ## Removing or Updating Your Plugin
 
 If you want to update your plugin, open a follow-up PR. If you want it removed entirely, open an issue or PR marking the entry as deprecated, or email the maintainer directly (see the main YouCoded [SECURITY.md](https://github.com/itsdestin/youcoded/blob/master/SECURITY.md) for contact).

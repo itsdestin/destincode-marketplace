@@ -3,6 +3,15 @@ main = "src/index.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
+# Custom domain (attached 2026-09-03). WHY: on the bare *.workers.dev address the
+# Cache API is inert, so lib/rate-limit.ts — which keeps its counters there — never
+# limited anything in production (measured 2026-08-28: 160 requests in ~2 s, zero
+# 429s). On a zone-hosted domain the cache works and the limiter is live. The
+# workers.dev address stays enabled so app versions that still name it keep working.
+routes = [
+  { pattern = "api.youcoded.ai", custom_domain = true }
+]
+
 [triggers]
 crons = ["17 6 * * *"]   # daily maintenance: prune sessions/handles/device codes
 

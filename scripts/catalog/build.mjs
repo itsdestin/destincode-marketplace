@@ -2,7 +2,7 @@
 // Catalog ingest — pulls every source, normalises, upserts to the Worker.
 //   node scripts/catalog/build.mjs [--source <name>] [--dry-run] [--force-rescan] [--allow-mass-retire]
 // Env: CATALOG_INGEST_TOKEN (required unless --dry-run), GITHUB_TOKEN (required),
-//      CATALOG_HOST (default https://wecoded-marketplace-api.destinj101.workers.dev)
+//      CATALOG_HOST (default https://api.youcoded.ai)
 import fs from "node:fs";
 import { createWorkerClient } from "./lib/worker.mjs";
 import { destinationsOf, unknownSourceMessage } from "./lib/entry.mjs";
@@ -15,7 +15,7 @@ const forceRescan = args.has("--force-rescan");
 // Deliberate override for a real bulk removal upstream. Without it the Worker refuses to
 // delist more than a fifth of a source in one run — see Task 6, "the retire guard".
 const allowMassRetire = args.has("--allow-mass-retire");
-const host = process.env.CATALOG_HOST ?? "https://wecoded-marketplace-api.destinj101.workers.dev";
+const host = process.env.CATALOG_HOST ?? "https://api.youcoded.ai";
 
 const SOURCES = {
   wecoded: () => import("./sources/wecoded.mjs"),

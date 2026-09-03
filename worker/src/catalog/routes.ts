@@ -340,9 +340,10 @@ export function catalogDisabled(env: { CATALOG_ENABLED?: string }): boolean {
 // The stored JSON is also CONCATENATED, not parsed and re-serialised: at a few thousand
 // rows the naive JSON.parse-then-c.json costs megabytes of pointless work per request.
 //
-// (All of this exists because *.workers.dev is not served from Cloudflare's edge cache.
-// On a custom domain the cache would absorb these repeats before they ever reach us —
-// see the ROADMAP entry. Until then the Worker is the cache.)
+// (All of this was written while the Worker lived only on *.workers.dev, where the
+// Cache API is inert. Since 2026-09-03 it is also served from api.youcoded.ai, where
+// the cache works — but this handler stays lean regardless, because the old address
+// is still in use by older app versions.)
 catalogRoutes.get("/catalog", async (c) => {
   if (catalogDisabled(c.env)) {
     return c.text("catalog temporarily unavailable", 503);

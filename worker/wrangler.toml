@@ -73,6 +73,11 @@ id = "a635a913ae8448bba50d63372afb13a1"
 preview_id = "82814d7e798b4764b973d3775555ac19"
 
 [env.test]
+# WHY routes = []: environments inherit the top-level `routes`, and deploying
+# env.test would otherwise REASSIGN api.youcoded.ai away from the production
+# Worker (wrangler warns about exactly this on every test run). Tests never
+# deploy, but an empty list makes the mistake impossible and silences the warning.
+routes = []
 # Test environment inherits config but omits AI binding — vitest-pool-workers /
 # miniflare in this toolchain version can't resolve the wrapped AI worker.
 [[env.test.d1_databases]]

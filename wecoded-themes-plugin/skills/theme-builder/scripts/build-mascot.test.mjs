@@ -96,3 +96,19 @@ test('a light body drops the highlight, which would be invisible on it', () => {
 test('the printed defaults are a usable config', () => {
   assert.doesNotThrow(() => buildRig(JSON.parse(JSON.stringify(DEFAULTS))));
 });
+
+test('a decorated rig projects its decoration into the flat art', async () => {
+  const { flattenRig } = await import('./build-mascot.mjs');
+  const HAT = '<g id="slot-hat"><path id="brim" d="M6 4 L18 4 L12 1 Z" fill="#ff0090"/></g>';
+  const rig = buildRig({}).replace('<g id="slot-hat"/>', HAT);
+  for (const v of FLAT) {
+    const flat = flattenRig(rig, v);
+    assert.ok(flat.includes('id="brim"'), `${v} lost the hat`);
+    // Exactly one face survives, and it paints.
+    const shown = FACES.filter((f) => flat.includes(`<g id="rig-face-${f}"`));
+    assert.deepEqual(shown, [{ idle: 'idle', welcome: 'welcome', inquisitive: 'curious', shocked: 'shocked' }[v]]);
+    assert.ok(!/rig-face-[a-z]+"[^>]*display:\s*none/.test(flat), 'the surviving face must not be hidden');
+    // Mittens are the overlay's, not the picture's.
+    assert.ok(!flat.includes('rig-hand-peek'), `${v} kept a grip mitten`);
+  }
+});

@@ -49,6 +49,14 @@ brand face details via the config's `extra` hook; add scene companions.
 **Must not:** reshape the body capsule, move or resize the limbs, move the eyes, remove the
 grip mittens, or bake in scenery or `<animate>` (all animation is app-side).
 
+**After you decorate, re-derive the flat art.** The flat variants generated from the palette
+know nothing about what you later dropped into a slot, so a rig with a hat plus palette-only
+flat art means desktop shows the hat and Android does not:
+
+```bash
+node ${SKILL}/scripts/build-mascot.mjs --out <theme>/assets --from-rig <theme>/assets/mascot-rig.svg
+```
+
 **An accessory must not cover the face.** Halftone Dimension pre-filled a visor across the
 eyes and no expression on that character was readable for months. If a signature component
 sits over the eyes, ship it as an opt-in component instead of pre-filling the slot.

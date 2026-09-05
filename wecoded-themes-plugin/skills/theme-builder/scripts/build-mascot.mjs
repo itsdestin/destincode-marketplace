@@ -13,7 +13,7 @@
 // item into #slot-item, add a #rig-tail. Never reshape the body capsule or move the limbs.
 import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { faceSet, faceGroups } from './mascot-faces.mjs';
+import { faceSet, faceGroups, FACE_NAMES as FACE_IDS } from './mascot-faces.mjs';
 
 const BODY = 'M9 4 L15 4 A4 4 0 0 1 19 8 L19 12 A4 4 0 0 1 15 16 L9 16 A4 4 0 0 1 5 12 L5 8 A4 4 0 0 1 9 4 Z';
 const ARM_L = 'M1.8 9 L3.2 9 A0.8 0.8 0 0 1 4 9.8 L4 12.2 A0.8 0.8 0 0 1 3.2 13 L1.8 13 A0.8 0.8 0 0 1 1 12.2 L1 9.8 A0.8 0.8 0 0 1 1.8 9 Z';
@@ -146,11 +146,58 @@ ${bodyArt(c)}
 `;
 }
 
+/** Everything between a group's opening tag and its matching close. */
+function groupSpan(svg, id) {
+  const open = svg.search(new RegExp(`<g\\b[^>]*\\bid="${id}"`));
+  if (open < 0) return null;
+  const afterTag = svg.indexOf('>', open);
+  if (svg[afterTag - 1] === '/') return { start: open, end: afterTag + 1 };
+  let i = afterTag + 1, depth = 1;
+  while (i < svg.length && depth > 0) {
+    const no = svg.indexOf('<g', i), nc = svg.indexOf('</g>', i);
+    if (nc < 0) break;
+    if (no >= 0 && no < nc) { depth++; i = no + 2; }
+    else { depth--; if (depth === 0) return { start: open, end: nc + 4 }; i = nc + 4; }
+  }
+  return null;
+}
+
+/** Project a DECORATED rig down to one flat variant.
+ *  Use this after you add a hat, tail or eyewear: the flat art generated from the palette
+ *  alone knows nothing about slot contents, so a decorated rig plus palette-only flat art
+ *  means desktop shows the hat and Android does not. Mirrors wecoded-themes
+ *  scripts/flatten-rig.mjs, which is what the registry audits against. */
+export function flattenRig(rig, variant) {
+  const keep = FLAT[variant];
+  if (!keep) throw new Error(`no flat variant "${variant}" — the app displays only ${Object.keys(FLAT).join(', ')}`);
+  let svg = rig;
+  const spans = FACE_IDS.filter((f) => f !== keep)
+    .map((f) => groupSpan(svg, `rig-face-${f}`)).filter(Boolean)
+    .sort((a, b) => b.start - a.start);
+  for (const sp of spans) svg = svg.slice(0, sp.start) + svg.slice(sp.end);
+  svg = svg.replace(new RegExp(`(<g id="rig-face-${keep}")[^>]*>`), '$1>');
+  // The peek mittens are cloned by the app's edge overlay, never drawn in place.
+  for (const id of ['rig-hand-peek-left', 'rig-hand-peek-right']) {
+    const sp = groupSpan(svg, id);
+    if (sp) svg = svg.slice(0, sp.start) + svg.slice(sp.end);
+  }
+  return svg.replace(/<!--[\s\S]*?-->/,
+    `<!-- Flat "${variant}" variant, projected from mascot-rig.svg — do not edit by hand. -->`);
+}
+
 function main(argv) {
   const arg = (k, d) => { const i = argv.indexOf(k); return i < 0 ? d : argv[i + 1]; };
   if (argv.includes('--print-config')) { console.log(JSON.stringify(DEFAULTS, null, 2)); return 0; }
   const out = arg('--out');
-  if (!out) { console.error('usage: build-mascot.mjs --out <dir> [--config <file.json>] [--body <hex>] [--skin solid|outline]'); return 1; }
+  if (!out) { console.error('usage: build-mascot.mjs --out <dir> [--config <file.json>] [--body <hex>] [--skin solid|outline]\n       build-mascot.mjs --out <dir> --from-rig <mascot-rig.svg>   # re-derive flat art from a decorated rig'); return 1; }
+  const fromRig = arg('--from-rig');
+  if (fromRig) {
+    const rig = readFileSync(fromRig, 'utf8');
+    mkdirSync(out, { recursive: true });
+    for (const v of Object.keys(FLAT)) writeFileSync(join(out, `mascot-${v}.svg`), flattenRig(rig, v));
+    console.log(`re-derived ${Object.keys(FLAT).length} flat variants from ${fromRig}`);
+    return 0;
+  }
   let cfg = {};
   const cf = arg('--config');
   if (cf) cfg = JSON.parse(readFileSync(cf, 'utf8'));

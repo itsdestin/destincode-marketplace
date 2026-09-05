@@ -323,6 +323,14 @@ jobs:
         run: |
           if git diff --quiet ${{ github.event.pull_request.base.sha }} HEAD -- youcoded-chatsearch/; then echo "unchanged"; exit 0; fi
           cd youcoded-chatsearch && npm test
+      # The four hand-drawn mascot starter templates rotted into invalid SVG unnoticed for
+      # months, because nothing ever rendered a starter template. The generator that replaced
+      # them is testable, so it gets tested.
+      - name: Run the mascot generator tests when the theme plugin changed
+        if: always()
+        run: |
+          if git diff --quiet ${{ github.event.pull_request.base.sha }} HEAD -- wecoded-themes-plugin/; then echo "unchanged"; exit 0; fi
+          cd wecoded-themes-plugin/skills/theme-builder/scripts && node --test build-mascot.test.mjs
 
   # ── Auto-rebuild on merge (runs on push to master) ─────────────────────────
   rebuild:

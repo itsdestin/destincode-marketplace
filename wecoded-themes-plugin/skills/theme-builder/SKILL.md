@@ -174,7 +174,7 @@ User lands on the **Kit** — one page with eight swappable columns. Primary aut
 | Font | preset + override | Swap Google Font, auto-linked on rebuild |
 | Effects | multi + override | Particles (pick one) + overlay textures (vignette / noise / scanlines) |
 | Wallpaper | review + override | Keep hero image, or describe a change |
-| Mascots | review + override | Keep 4 mascot variants, or describe changes |
+| Mascots | review + override | Keep the generated set, or describe changes |
 | Icons & Details | review + override | Keep icon overrides / cursor / scrollbar, or describe changes |
 
 ### Step 5a: Generate Baseline Assets
@@ -184,7 +184,7 @@ Before rendering Kit, generate the assets Kit needs in review columns. Write int
 > **Write order matters — manifest LAST.** Assets first, manifest second. The chokidar watcher fires a reload per file; if the manifest exists before all assets, the reload reads it and the app briefly renders with broken asset URLs. Writing manifest last lets the debounce collapse everything to one clean event after all files are present.
 
 1. **Hero wallpaper** — copy chosen concept's wallpaper to `_preview/assets/wallpaper.<ext>` and `${screen_dir}/wallpaper.<ext>`.
-2. **Mascots** (4 variants, if theme has them) — **read `reference/mascots.md` before generating.** Write `_preview/assets/mascot-{idle,welcome,shocked,dizzy}.svg` and mirror into `screen_dir`. Skip the rig here — Kit iterates on the flat variants; the rig is authored once in Phase 2 from the settled design.
+2. **Mascots** (if theme has them) — **read `reference/mascots.md` before generating.** Do not draw them: run `node scripts/build-mascot.mjs --out _preview/assets --config <palette.json>`, which writes the rig and all four flat variants at once, then decorate the slots. Mirror the flat variants into `screen_dir`. Kit iterates on the palette and the decoration; the geometry never changes.
 3. **Icon overrides** — only the slots the concept calls for. `_preview/assets/icon-<slot>.svg` + mirror.
 4. **Pattern SVG** — only if concept has a pattern. `_preview/assets/pattern.svg` + mirror.
 5. **Manifest LAST** — `_preview/manifest.json` with relative asset paths. Omit mascot / icon / pattern sections if not used — matching Kit columns hide themselves automatically.
@@ -311,7 +311,7 @@ themselves. You are only involved for work the page cannot do:
 | Event | Meaning | What to do |
 |---|---|---|
 | `{"type":"kit-request","kind":"wallpaper","note":"...","state":{…}}` | needs new art | fetch via `fetch-wallpaper.cjs`, write to `_preview/assets/` + `screen_dir`, bump `_kit.revision`, rewrite `kit-state.json` |
-| `…"kind":"mascots"` | redraw mascots | read `reference/mascots.md`, regenerate 4 SVGs, same write pattern |
+| `…"kind":"mascots"` | redraw mascots | read `reference/mascots.md`, re-run `build-mascot.mjs` with the new palette, same write pattern |
 | `…"kind":"icons"` | redraw icons | regenerate the named slots, same write pattern |
 | `{"type":"kit-build","state":{…}}` | ship it | Phase 2 — **read `reference/phase2-finalize.md`** |
 
@@ -333,12 +333,10 @@ When the Kit user clicks **Build Theme Pack** (the page sends `{"type":"kit-buil
 
 Most assets already exist in `_preview/assets/` from Phase 1.5 — Phase 2 is mostly `cp` operations; only regenerate what's missing.
 
-**Mascot rig (if the theme has mascots):** author `assets/mascot-rig.svg` from the settled
-flat-mascot design and add `"rig": "assets/mascot-rig.svg"` to the manifest's `mascot`
-section — see the "Mascot rig" section of `reference/mascots.md` (mix/match a skin from the
-wecoded-themes `mascots/` library, adapt an example, or generate under the README
-constraints). Flat variants stay in the manifest — they're what the app renders until the
-rig renderer ships.
+**Mascot rig (if the theme has mascots):** `build-mascot.mjs` already wrote
+`assets/mascot-rig.svg` alongside the flat variants in Phase 1.5 — copy it across and make
+sure the manifest's `mascot` section names all five. Flat variants stay: the rig is
+desktop-only, and Android and remote browsers render the flat art.
 
 ---
 
@@ -355,7 +353,7 @@ After the pack is written, refinements go directly to manifest or asset files; a
 - Use `custom_css` for effects the schema doesn't cover
 - NEVER set `border-radius` on bubble elements in `custom_css` — use `bubble-style` preset and `shape` values
 - Pattern SVGs must tile seamlessly; particle shapes must work at 8–16 px
-- When generating mascots, ALWAYS read base templates first for silhouette/proportions AND follow `reference/mascots.md`. The base templates' currentColor-fill + cutout-eye pattern fails on most themes.
+- Never hand-draw a mascot — run `scripts/build-mascot.mjs` and decorate its slots. The four hand-drawn starter templates were deleted 2026-09-05: they carried React attribute spelling that is invalid in SVG, so all four rendered as black silhouettes and one had a single eye.
 - Preview CSS (`theme-preview.css`) and app's `globals.css` are a CONTRACT — if either changes, both must stay in sync
 - NEVER write the concepts page HTML from scratch — always read `scripts/concept-page-template.html` first and fill placeholders
 - NEVER write or edit the Kit page HTML. Copy `scripts/kit-refinement-template.html` VERBATIM and write `kit-state.json` instead — the page renders itself from JSON at load. Editing the markup to change a theme means you've misread the design.
@@ -377,7 +375,7 @@ After the pack is written, refinements go directly to manifest or asset files; a
 **Before rendering Kit (Phase 1.5):**
 - [ ] Concept pick seeded into `_preview/manifest.json` (tokens + shape + layout + font + effects)
 - [ ] Baseline assets generated into BOTH `_preview/assets/` AND `screen_dir`: wallpaper, mascots (if applicable), icons (if applicable), pattern (if applicable)
-- [ ] Mascots (if generated) follow `reference/mascots.md`
+- [ ] Mascots (if generated) came from `build-mascot.mjs`, not hand-drawn
 - [ ] All SEVEN page files copied VERBATIM into `screen_dir`: `kit-refinement-template.html`→`screen.html`, `kit-presets.json`, `kit-page.css`, `kit-page.js`, `kit-state.js`, `contrast-rules.js`, and `palettes/*.json` as `palette-<id>.json`
 - [ ] `kit-state.json` written — `slug` is the literal `"_preview"`, `_kit.finalSlug` holds the real one, asset values are BARE BASENAMES
 - [ ] `_kit.customPalettes` holds FOUR wallpaper-derived palettes, each with all 15 tokens, each contrast-checked, each a genuinely different reading of the image — not four tints of one
@@ -401,8 +399,8 @@ After the pack is written, refinements go directly to manifest or asset files; a
 - [ ] `scripts/custom-css-reference.md` read before writing custom CSS
 - [ ] Assets moved from `_preview/assets/` → `<slug>/assets/`; wallpaper also still in `screen_dir`
 - [ ] For image themes: `wallpaper-terminal.webp` baked via `prep-terminal-bg.cjs` AND manifest includes `background.terminal-value` — **needs `sharp`**: run `cd ${SKILL}/scripts && npm install` first, or it exits with `sharp not installed` and no output file
-- [ ] If mascots were regenerated, they follow `reference/mascots.md` (verified distinct at 24 px)
-- [ ] If the theme has mascots: `assets/mascot-rig.svg` authored per the "Mascot rig" section of `reference/mascots.md` + manifest `mascot.rig` set (flat variants kept)
+- [ ] If mascots were regenerated, they came from `build-mascot.mjs` and read clearly at 24 px
+- [ ] If the theme has mascots: `assets/mascot-rig.svg` present, manifest names `rig` + `idle` + `welcome` + `inquisitive` + `shocked` (never `dizzy` — the app cannot display it)
 - [ ] Manifest uses relative asset paths only
 - [ ] Bubble blur/opacity are manifest fields, NOT hardcoded in `custom_css`
 - [ ] Wallpaper + pattern come from `background.value` / `background.pattern` — NOT from `body::before`/`body::after` in `custom_css`

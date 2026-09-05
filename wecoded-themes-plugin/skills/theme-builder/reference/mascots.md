@@ -1,102 +1,133 @@
 # Mascot Rendering Rules
 
-Read this file before generating any mascot SVG. These rules are non-negotiable — the base templates' original `currentColor`-fill + cutout-eye pattern fails on most themes.
+Read this before generating any mascot. **Do not hand-draw the faces** — run the generator,
+then decorate. Everything below is either a rule the app enforces or a mistake that has
+already shipped.
 
-## Base templates
+## Generate, don't draw
 
-Read all 4 before generating:
-
-```
-scripts/base-mascot-idle.svg       (>< squinting eyes)
-scripts/base-mascot-welcome.svg    (sparkle eyes, waving)
-scripts/base-mascot-shocked.svg    (tall oval eyes, O mouth, arms out)
-scripts/base-mascot-dizzy.svg      (X-X eyes, zigzag mouth, drooped arms)
+```bash
+node ${SKILL}/scripts/build-mascot.mjs --out <theme>/assets --config <palette.json>
+node ${SKILL}/scripts/build-mascot.mjs --print-config      # every field with its default
 ```
 
-## What you can / must not do
+One command writes all five files the theme needs:
 
-**Can:** Add accessories on top (hats, bows, capes), held items from arms, surface patterns, appendages (tail, wings), ambient elements (sparkles, flames, leaves), whiskers or brand-specific face details.
+| File | What it is |
+|---|---|
+| `mascot-rig.svg` | The rig — eight faces, limb pivots, slots, both grip mittens. What desktop renders. |
+| `mascot-idle.svg` · `mascot-welcome.svg` · `mascot-inquisitive.svg` · `mascot-shocked.svg` | The flat variants. What Android and remote browsers render. |
 
-**Must not:** Change basic body proportions (squat body, nub arms, stubby legs) or make it unrecognizable.
+The config is a palette, not artwork:
 
-## Rendering rules (non-negotiable)
+```json
+{
+  "skin": "solid",                                    // or "outline" for a light body + line
+  "body": "#f0a828", "highlight": "#ffd268", "shade": "#b8760f",
+  "face": { "ink": "#2a1004" },                       // + "fill"/"rim" for dark bodies, see below
+  "catchlight": "cluster",                            // or "pair"
+  "spark": ["#ffc030", "#ffe090", "#ffd060"],
+  "accent": "#ffc030",
+  "tail": false
+}
+```
 
-The base templates use `currentColor` for the whole body + dark cutouts for eyes. That model breaks on any theme where the text color ends up close to the surface color — body goes dark-on-dark and eye cutouts vanish. Always use this safer pattern instead:
+**Why a generator instead of starter drawings.** Four hand-drawn starter SVGs used to live in
+`scripts/`. They were copied out of React JSX and kept its attribute spelling (`fillRule`,
+`stopColor`), which is not valid SVG — so the eye cutouts never cut, the gradients never
+painted, and the whole body fell back to `currentColor`. Rendered the way the app renders
+them, all four were black silhouettes; `idle` had one eye and `welcome` had none. Nothing
+caught it because nothing ever renders a starter template. Generating from the same source
+as the shipped characters is the only arrangement that stays in step.
 
-1. **Body: white fill + `currentColor` stroke.** Not a `currentColor` fill. A 0.5–0.8 px stroke keeps the outline theme-aware (matches text color) while the white body guarantees contrast on any surface.
-   ```xml
-   <path d="..." fill="#FFFFFF" stroke="currentColor" stroke-width="0.6"/>
-   ```
-2. **Draw eyes and mouth ON TOP of the body, never as cutouts.** Cutouts rely on the body having opposite-luminance to the page background — not true in general themes. Drawn features always render.
-   - Squinting `><` → two `<path>` polylines or 3-point lines with `stroke-linecap="round"`
-   - Round / sparkle eyes → `<circle>` or `<ellipse>` filled with `currentColor`, small white `<circle>` highlights on top
-   - Shocked O mouth → `<ellipse>` filled with `currentColor`
-   - X-X eyes → two crossed `<line>` elements per eye, stroked in `currentColor`
-   - Zigzag / squiggle mouth → polyline `<path>` with `stroke-linejoin="round"`
+## Then decorate
 
-   **Do NOT use self-intersecting paths with `fillRule="evenodd"` for eyes.** They render inconsistently across SVG viewers (one eye can disappear, especially the second cutout in a multi-subpath `<path>`).
+**Can:** drop a hat into `#slot-hat`, eyewear into `#slot-eyewear`, a held item into
+`#slot-item`; add `#rig-tail` (`"tail": true`); add surface pattern, whiskers, a nose, or
+brand face details via the config's `extra` hook; add scene companions.
 
-3. **Legs and arms follow the same pattern** — white fill, `currentColor` stroke — so the whole mascot is a cohesive outline drawing.
+**Must not:** reshape the body capsule, move or resize the limbs, move the eyes, remove the
+grip mittens, or bake in scenery or `<animate>` (all animation is app-side).
 
-4. **Theme-fixed accents are hardcoded hex, not CSS vars.** A pink skull on a Kuromi theme should be `fill="#FF4FB8"`, not `var(--accent)` — SVG doesn't re-evaluate CSS variables against the app's theme tokens when rendered via `<img>` / `background-image`. If you want a color that recolors with the theme, use `currentColor`; otherwise hardcode.
+**An accessory must not cover the face.** Halftone Dimension pre-filled a visor across the
+eyes and no expression on that character was readable for months. If a signature component
+sits over the eyes, ship it as an opt-in component instead of pre-filling the slot.
 
-5. **Verify at 24 px.** Mascots most commonly render small. Stage all 4 in a browser preview page at 24 / 48 / 80 / 120 px against canvas / panel / inset backgrounds, and confirm the expressions are distinguishable at 24 px. If any detail disappears, simplify it.
+## Colour rules (each of these has already gone wrong)
 
-6. **Keep feature positions consistent across variants.** Eyes roughly at `y ≈ 10`, mouth near `y ≈ 13`, hat accessories at `y ≈ 2–4`. Variance between variants should come from shape, not re-positioning.
+1. **Flat variants are hardcoded hex. Never `currentColor`, never CSS variables.** The app
+   loads them through `<img>`, where `currentColor` resolves to **black** and CSS variables
+   never resolve at all — measured 2026-09-05 by rendering a template on a page with
+   `color: #ff0000` and getting pure `#000000`. Rigs are different: they are inlined after
+   sanitizing, so `var(--rig-accent, …)` / `var(--rig-on-accent, …)` / `var(--rig-line, …)`
+   do work there. The generator hardcodes both, which is always safe.
+2. **The face must contrast with the BODY, and nothing checks it for you.** Halftone shipped
+   `#1e2636` on `#191327`. At 80 px a near-black face on a near-black body is not subtle,
+   it is absent.
+3. **On a dark body, do not simply flip the face to white.** A large light shape on a dark
+   body reads as a glowing hole. Keep the eye dark and give it a light outline
+   (`"face": { "ink": "#dfe8f5", "fill": "#0d1120", "rim": "#dfe8f5" }`), or fill it with a
+   mid-tone clearly lighter than the body.
+4. **Theme-fixed accents are hardcoded hex** — a pink skull on a Kuromi-style theme is
+   `fill="#FF4FB8"`, not a variable.
+
+## Face rules
+
+The generator applies all of these; they are here so you can tell when something is wrong.
+
+| face | eyes | brows | mouth |
+|---|---|---|---|
+| `welcome` | tall rounded ellipses + catchlight | — | soft filled smile |
+| `curious` | same | one flat, one arched | small "o" |
+| `shocked` | same, ~12% larger | both arched high | open oval |
+| `dizzy` | crossed lines | — | zigzag, two stars beside the head |
+| `idle` | closed, curving **up** | — | small dot |
+| `blink` | closed, curving **down** | — | soft smile |
+| `happy` | closed, curving up hard | — | wide grin |
+| `shutdown` | flat lines | — | short flat line |
+
+- **`rig-face-idle` is NOT the face shown at rest.** The resting pose asks for `welcome`.
+  `idle` is the pressed/held face and the still frame a reduced-effects user sees. Do not
+  put your best work there expecting it to be the default expression.
+- **Eyes are ellipses with a catchlight, never a solid disc.** Big black discs were tried
+  and rejected as creepy, twice. `"catchlight": "cluster"` is three sparkle dots;
+  `"pair"` is one large shine high on the inner edge plus a small one low and outside. The
+  pair reads rounder and cuter, the cluster busier and more printed. Per-character choice.
+- **Cursor tracking needs `<g class="pupil">` on both eyes of `welcome`, `curious` and
+  `shocked`.** It was once documented as a `curious` convention, so every shipped rig
+  tracked on exactly one face and stared straight ahead on the rest.
+- **Spirals are not an option for `dizzy`.** Tried, dropped; they turn to mush at 24 px.
+
+## Manifest
+
+```json
+"mascot": {
+  "rig": "assets/mascot-rig.svg",
+  "idle": "assets/mascot-idle.svg",
+  "welcome": "assets/mascot-welcome.svg",
+  "inquisitive": "assets/mascot-inquisitive.svg",
+  "shocked": "assets/mascot-shocked.svg"
+}
+```
+
+**The flat variants are exactly those four.** `dizzy` is NOT one of them — the app's
+`MascotVariant` type is `idle | welcome | inquisitive | shocked`, so a `dizzy` entry is dead
+weight the app resolves and never displays. Two shipped themes carry one because an older
+version of this file said to. (`dizzy` is a rig FACE — it just has no flat counterpart.)
+
+## Verify before shipping
+
+1. **Run the registry's auditor** — it is the same one that gates PRs to `wecoded-themes`:
+   `node scripts/audit-rigs.mjs` from a `wecoded-themes` checkout. It checks the viewBox,
+   every group id, the pivots, all eight faces, the pupil groups, the mittens and the slots.
+   A generated rig passes it with zero warnings; if yours doesn't, you changed something you
+   shouldn't have.
+2. **Preview every face at 24 / 48 / 80 px** on canvas, panel and inset backgrounds. At 24 px
+   the character must read; at 48 px the expressions must be tellable apart.
+3. Confirm the flat variants render on a page whose text colour is something loud like red —
+   if any part of the mascot comes out red or black, a `currentColor` slipped in.
 
 ## Output paths
 
-- Phase 1.5 (baseline): `_preview/assets/mascot-{idle,welcome,shocked,dizzy}.svg` + mirror into `screen_dir`
-- Phase 2 (finalize): `<slug>/assets/mascot-{idle,welcome,shocked,dizzy}.svg`
-
-## Mascot rig (the preferred format — ship it alongside the flat variants)
-
-The app renders mascots as **rigs**: a single SVG whose named groups it animates (poses,
-limb-trailing drag physics, blinking, edge-peek grip hands, spring-following scene
-companions). The renderer shipped 2026-07-16 and is live on **Electron desktop only** —
-Android and remote browsers can't fetch `theme-asset://`, so they still show the flat art
-(`Icons.tsx`, `const desktop = !isAndroid() && !isRemoteMode()`). That's why flat variants
-stay REQUIRED: they're the other half of the matrix, not a placeholder. Ship both: the four flat SVGs above
-plus `assets/mascot-rig.svg`, referenced from the manifest as `"mascot": { ..., "rig":
-"assets/mascot-rig.svg" }`.
-
-**The authoring contract lives in the wecoded-themes repo — fetch and follow it:**
-
-```
-https://raw.githubusercontent.com/itsdestin/wecoded-themes/main/mascots/README.md
-```
-
-Three ways to build the rig, in ascending effort (all detailed in that README):
-
-1. **Mix and match** — fetch one of the six approved skins from
-   `https://raw.githubusercontent.com/itsdestin/wecoded-themes/main/mascots/skins/`
-   (`2-5d-soft` · `clay` · `comic-pop` · `comic-burst` · `newsprint` · `sticker`), recolor it
-   per the substitution table in its header comment, and drop components (hats / eyewear /
-   held items) from `mascots/components/` into the slots.
-2. **Adapt an example** — `mascots/examples/golden-sunbreak.rig.svg` /
-   `halftone-dimension.rig.svg` (solid bodies), `kuromi-dreamer.rig.svg` /
-   `strawberry-kitty.rig.svg` (outline/white bodies).
-3. **Generate from scratch** under the README's constraints (non-negotiable: the body
-   capsule path, canonical limb positions + pivots, all six face groups painted on a solid
-   body — never cutouts — slots present, limbs drawn hanging down, both grip mittens).
-
-Prefer (1) or (2). Every skin and example already carries both grip-mitten groups, so
-starting from one is the only path that can't quietly omit a part.
-
-Rig-specific rules that DIFFER from the flat-variant rules above:
-
-- Rigs are **inlined** into the app after sanitizing, so CSS variables DO resolve — tint
-  with `var(--rig-accent, <fallback>)` / `var(--rig-on-accent, <fallback>)` /
-  `var(--rig-line, <fallback>)`, or hardcode identity colors. Never `currentColor` (that is
-  the flat-`<img>`-path rule; in rigs it still resolves to black in previews).
-- Six faces, not four: `idle · welcome · curious · shocked · dizzy · blink` — all but idle
-  `style="display:none"`.
-- **Both grip mittens**: `rig-hand-peek-left` + `rig-hand-peek-right`, also `display:none`
-  (only the app's edge overlay shows them). Fixed geometry — `x="0.7"` / `x="20.7"`,
-  `y="8.3"`, `2.6 × 3.4`, `rx="1.17"` — recolor only. Omitting them is invisible until the
-  buddy is dragged to a *side* screen edge, where he then peeks bare-armed; two shipped
-  themes did exactly that. `wecoded-themes` CI (`scripts/audit-rigs.mjs`) checks this.
-- No baked scenery (suns, sparkle fields) and no `<animate>`/SMIL — flourishes ship as scene
-  companions, and ALL animation is app-side. The sanitizer strips `<script>`, `<style>`,
-  `<foreignObject>`, SMIL tags, `on*` attributes, and external URLs.
-- Same 24 px quality bar as the flat variants: preview every face group at 24 / 48 / 80 px.
+- Phase 1.5 (baseline): `_preview/assets/` + mirror into `screen_dir`
+- Phase 2 (finalize): `<slug>/assets/`

@@ -89,8 +89,9 @@
   "mascot": {
     "idle": "assets/mascot-idle.svg",
     "welcome": "assets/mascot-welcome.svg",
+    "inquisitive": "assets/mascot-inquisitive.svg",
     "shocked": "assets/mascot-shocked.svg",
-    "dizzy": "assets/mascot-dizzy.svg"
+    "rig": "assets/mascot-rig.svg"
   },
 
   // ── Optional: custom cursor (32x32 viewBox, hotspot at top-left) ──

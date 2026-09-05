@@ -1,7 +1,7 @@
 {
   "name": "wecoded-themes-plugin",
   "description": "Build and share custom themes — AI-generated or from scratch",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": { "name": "itsdestin" },
   "license": "MIT",
   "recommends": ["youcoded-core"],

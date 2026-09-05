@@ -80,12 +80,15 @@ test('the flat set is the four variants the app can display, and dizzy is not on
   assert.throws(() => buildFlat({}, 'dizzy'), /.*/, 'dizzy is a rig face with no flat counterpart');
 });
 
-test('dizzy is crossed lines, never spirals', () => {
+test('dizzy is spirals, and nothing floats beside the head', () => {
   const svg = buildRig({});
   const start = svg.indexOf('<g id="rig-face-dizzy"');
   const body = svg.slice(start, svg.indexOf('\n      </g>', start));
-  assert.equal((body.match(/<line /g) ?? []).length, 4, 'two crosses, four lines');
-  assert.ok(!/a0\.3 0\.3 0 0 1/.test(body), 'spiral path found');
+  assert.equal((body.match(/a0\.3 0\.3 0 0 1/g) ?? []).length, 2, 'one spiral per eye');
+  // The pair of closed loops that used to sit either side of the head is gone: they read as
+  // debris, and they collided with hats and ears.
+  assert.ok(!/ 3\.6 Q/.test(body), 'a head loop survived');
+  assert.ok(!/<line /.test(body), 'crossed eyes are the OLD dizzy');
 });
 
 test('a light body drops the highlight, which would be invisible on it', () => {

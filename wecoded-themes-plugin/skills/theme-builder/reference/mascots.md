@@ -88,7 +88,7 @@ The generator applies all of these; they are here so you can tell when something
 | `welcome` | tall rounded ellipses + catchlight | — | soft filled smile |
 | `curious` | same | one flat, one arched | small "o" |
 | `shocked` | same, ~12% larger | both arched high | open oval |
-| `dizzy` | crossed lines | — | zigzag, two stars beside the head |
+| `dizzy` | spirals | — | zigzag; nothing floats beside the head |
 | `idle` | closed, curving **up** | — | small dot |
 | `blink` | closed, curving **down** | — | soft smile |
 | `happy` | closed, curving up hard | — | wide grin |
@@ -104,7 +104,8 @@ The generator applies all of these; they are here so you can tell when something
 - **Cursor tracking needs `<g class="pupil">` on both eyes of `welcome`, `curious` and
   `shocked`.** It was once documented as a `curious` convention, so every shipped rig
   tracked on exactly one face and stared straight ahead on the rest.
-- **Spirals are not an option for `dizzy`.** Tried, dropped; they turn to mush at 24 px.
+- **`dizzy` is spirals, and nothing floats beside the head.** The loops that used to sit
+  either side of the head are gone — debris, and they collide with hats and ears.
 
 ## Manifest
 

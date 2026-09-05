@@ -10,9 +10,9 @@ const n = (v) => Number(v.toFixed(2));
 export const FACE_NAMES = ['idle', 'welcome', 'curious', 'shocked', 'dizzy', 'blink', 'happy', 'shutdown'];
 
 /** @param c {{ink, fill?, rim?, rimW?, spark, sparkOpacity?, catchlight?, accent, accent2?,
- *             lx?, ly?, rx?, ry?, eyeW?, eyeH?, mouthY?, browY?, sparkAt?, extra?}} */
+ *             lx?, ly?, rx?, ry?, eyeW?, eyeH?, mouthY?, browY?, extra?}} */
 export function faceSet(c) {
-  const line = c.ink;                       // strokes: lids, brows, whiskers, dizzy crosses
+  const line = c.ink;                       // strokes: lids, brows, whiskers, dizzy spirals
   const solid = c.fill ?? c.ink;            // filled shapes: eyes, mouths
   const rim = c.rim ? ` stroke="${c.rim}" stroke-width="${c.rimW ?? 0.28}"` : '';
   const sp = c.spark;
@@ -59,13 +59,10 @@ export function faceSet(c) {
   const oBig = `<ellipse cx="12" cy="${n(my + 0.3)}" rx="0.7" ry="0.85" fill="${solid}"${rim}/>`;
   const dot = `<ellipse cx="12" cy="${n(my + 0.05)}" rx="0.5" ry="0.42" fill="${solid}"${rim}/>`;
 
-  // Knocked-out eyes are crossed lines. Spirals were tried and dropped — they turn to mush
-  // at 24 px and read as a different character.
-  const crosses = `<g stroke="${line}" stroke-width="1" stroke-linecap="round">`
-    + `<line x1="8" y1="${n(E.ly - 0.95)}" x2="10.6" y2="${n(E.ly + 1.85)}"/><line x1="10.6" y1="${n(E.ly - 0.95)}" x2="8" y2="${n(E.ly + 1.85)}"/>`
-    + `<line x1="13.4" y1="${n(E.ry - 0.95)}" x2="16" y2="${n(E.ry + 1.85)}"/><line x1="16" y1="${n(E.ry - 0.95)}" x2="13.4" y2="${n(E.ry + 1.85)}"/></g>`;
-  const spark = (x, y, col) => `<path d="M${x} ${y} Q${x + 1} ${y - 1} ${x + 2} ${y} Q${x + 1} ${y + 1} ${x} ${y} Z" fill="none" stroke="${col}" stroke-width="0.5" stroke-linecap="round"/>`;
-
+  // Knocked-out eyes are SPIRALS — the redesign that came with the warm set. What was
+  // dropped is the pair of closed loops that used to float beside the head; they read as
+  // debris rather than as dizziness, and they collide with hats and ears.
+  const spiral = (cx, cy) => `<path d="M${cx} ${cy} a0.3 0.3 0 0 1 0.3 0.3 a0.6 0.6 0 0 1 -0.6 0.6 a0.9 0.9 0 0 1 -0.9 -0.9 a1.2 1.2 0 0 1 1.2 -1.2 a1.3 1.3 0 0 1 1.3 1.3" fill="none" stroke="${line}" stroke-width="0.6" stroke-linecap="round"/>`;
   return {
     // The HELD face — NOT what you see at rest. The resting pose asks for `welcome`.
     idle: lids(0.65, -0.45, 0.85) + dot,
@@ -76,10 +73,8 @@ export function faceSet(c) {
     shocked: eyesOpen(1.12)
       + stroke(`M7.95 ${n(by - 0.1)} Q9.3 ${n(by - 0.7)} 10.65 ${n(by - 0.1)}`, 0.5)
       + stroke(`M13.35 ${n(by - 0.4)} Q14.7 ${n(by - 1)} 16.05 ${n(by - 0.4)}`, 0.5) + oBig,
-    dizzy: crosses
-      + `<path d="M10.4 ${n(my + 0.3)} L11.2 ${n(my - 0.3)} L12 ${n(my + 0.3)} L12.8 ${n(my - 0.3)} L13.6 ${n(my + 0.3)}" fill="none" stroke="${line}" stroke-width="0.8" stroke-linecap="round" stroke-linejoin="round"/>`
-      + spark(c.sparkAt?.[0][0] ?? 5, c.sparkAt?.[0][1] ?? 3.6, c.accent)
-      + spark(c.sparkAt?.[1][0] ?? 17, c.sparkAt?.[1][1] ?? 3.6, c.accent2 ?? c.accent),
+    dizzy: spiral(E.lx, n(E.ly + 0.25)) + spiral(E.rx, n(E.ry + 0.35))
+      + `<path d="M10.4 ${n(my + 0.3)} L11.2 ${n(my - 0.3)} L12 ${n(my + 0.3)} L12.8 ${n(my - 0.3)} L13.6 ${n(my + 0.3)}" fill="none" stroke="${line}" stroke-width="0.8" stroke-linecap="round" stroke-linejoin="round"/>`,
     blink: lids(0.45, 0.95, 0.85) + smile,
     happy: lids(0.85, -0.95, 0.9) + grin,
     shutdown: flatLids(0.8) + stroke(`M11.3 ${my} L12.7 ${my}`, 0.5),

@@ -6,11 +6,19 @@ compatibility_flags = ["nodejs_compat"]
 # Custom domain (attached 2026-09-03). WHY: on the bare *.workers.dev address the
 # Cache API is inert, so lib/rate-limit.ts — which keeps its counters there — never
 # limited anything in production (measured 2026-08-28: 160 requests in ~2 s, zero
-# 429s). On a zone-hosted domain the cache works and the limiter is live. The
-# workers.dev address stays enabled so app versions that still name it keep working.
+# 429s). On a zone-hosted domain the cache works and the limiter is live.
 routes = [
   { pattern = "api.youcoded.ai", custom_domain = true }
 ]
+# WHY EXPLICIT: `workers_dev` defaults to true ONLY while no route is declared —
+# adding the custom domain above silently switched the *.workers.dev address off,
+# and Cloudflare started answering it with 404 "error code: 1042". Every shipped
+# app built before 2026-09-03 (including stable v1.2.4) hardcodes that address, so
+# for those users the games lobby, Backup & Sync and the whole account/marketplace
+# API went dark from the 2026-09-03 16:21 deploy until this line landed. Keep it
+# true until no supported build names the workers.dev host — retirement is tracked
+# in the workspace roadmap (docs/roadmap/marketplace.md → backend).
+workers_dev = true
 
 [triggers]
 crons = ["17 6 * * *"]   # daily maintenance: prune sessions/handles/device codes

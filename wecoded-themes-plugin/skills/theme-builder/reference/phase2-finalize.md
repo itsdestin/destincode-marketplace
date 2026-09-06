@@ -98,7 +98,7 @@ Only **generate** SVGs that aren't in `_preview` yet (usually cursor, particle s
 
 ## Step 4: Move / Generate Mascot Crossovers
 
-Mascots usually already exist in `_preview/assets/mascot-{idle,welcome,shocked,dizzy}.svg` (generated in Phase 1.5 Step 5a, regenerated on Kit mascot-change). The `cp *.svg` in Step 3 already moved them.
+Mascots usually already exist in `_preview/assets/mascot-{idle,welcome,inquisitive,shocked}.svg` plus `mascot-rig.svg` (generated in Phase 1.5 Step 5a by `build-mascot.mjs`, regenerated on Kit mascot-change). The `cp *.svg` in Step 3 already moved them.
 
 Only generate here if the theme needs mascots but `_preview` doesn't have them yet. **Read `reference/mascots.md` before generating.**
 
